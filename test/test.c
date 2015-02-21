@@ -20,7 +20,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdarg.h>
-#include <ass.h>
+#include <string.h>
+#include "../libass/ass.h"
 #include <png.h>
 
 typedef struct image_s {
@@ -166,8 +167,8 @@ static void blend(image_t * frame, ASS_Image *img)
 
 int main(int argc, char *argv[])
 {
-    const int frame_w = 640;
-    const int frame_h = 480;
+    const int frame_w = 1280;
+    const int frame_h = 720;
 
     if (argc < 4) {
         printf("usage: %s <image file> <subtitle file> <time>\n", argv[0]);

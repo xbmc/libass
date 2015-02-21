@@ -25,6 +25,7 @@
 #include FT_GLYPH_H
 #include FT_TRUETYPE_TABLES_H
 #include FT_OUTLINE_H
+#include <limits.h>
 
 #include "ass.h"
 #include "ass_library.h"
@@ -72,6 +73,21 @@ static void charmap_magic(ASS_Library *library, FT_Face face)
                 "No charmap autodetected, trying the first one");
         FT_Set_Charmap(face, face->charmaps[0]);
         return;
+    }
+}
+
+/**
+ * Adjust char index if the charmap is weird
+ * (currently just MS Symbol)
+ */
+
+uint32_t ass_font_index_magic(FT_Face face, uint32_t symbol)
+{
+    switch(face->charmap->encoding){
+    case FT_ENCODING_MS_SYMBOL:
+        return 0xF000 | symbol;
+    default:
+        return symbol;
     }
 }
 
@@ -220,12 +236,16 @@ void ass_face_set_size(FT_Face face, double size)
     FT_Size_Metrics *m = &face->size->metrics;
     // VSFilter uses metrics from TrueType OS/2 table
     // The idea was borrowed from asa (http://asa.diac24.net)
-    if (hori && os2) {
-        int hori_height = hori->Ascender - hori->Descender;
+    if (os2) {
+        int ft_height = 0;
+        if (hori)
+            ft_height = hori->Ascender - hori->Descender;
+        if (!ft_height)
+            ft_height = os2->sTypoAscender - os2->sTypoDescender;
         /* sometimes used for signed values despite unsigned in spec */
         int os2_height = (short)os2->usWinAscent + (short)os2->usWinDescent;
-        if (hori_height && os2_height)
-            mscale = (double) hori_height / os2_height;
+        if (ft_height && os2_height)
+            mscale = (double) ft_height / os2_height;
     }
     memset(&rq, 0, sizeof(rq));
     rq.type = FT_SIZE_REQUEST_TYPE_REAL_DIM;
@@ -263,7 +283,7 @@ void ass_font_get_asc_desc(ASS_Font *font, uint32_t ch, int *asc,
     for (i = 0; i < font->n_faces; ++i) {
         FT_Face face = font->faces[i];
         TT_OS2 *os2 = FT_Get_Sfnt_Table(face, ft_sfnt_os2);
-        if (FT_Get_Char_Index(face, ch)) {
+        if (FT_Get_Char_Index(face, ass_font_index_magic(face, ch))) {
             int y_scale = face->size->metrics.y_scale;
             if (os2) {
                 *asc = FT_MulFix((short)os2->usWinAscent, y_scale);
@@ -279,6 +299,31 @@ void ass_font_get_asc_desc(ASS_Font *font, uint32_t ch, int *asc,
     *asc = *desc = 0;
 }
 
+static void add_line(FT_Outline *ol, int bear, int advance, int dir, int pos, int size) {
+    FT_Vector points[4] = {
+        {.x = bear,      .y = pos + size},
+        {.x = advance,   .y = pos + size},
+        {.x = advance,   .y = pos - size},
+        {.x = bear,      .y = pos - size},
+    };
+
+    if (dir == FT_ORIENTATION_TRUETYPE) {
+        int i;
+        for (i = 0; i < 4; i++) {
+            ol->points[ol->n_points] = points[i];
+            ol->tags[ol->n_points++] = 1;
+        }
+    } else {
+        int i;
+        for (i = 3; i >= 0; i--) {
+            ol->points[ol->n_points] = points[i];
+            ol->tags[ol->n_points++] = 1;
+        }
+    }
+
+    ol->contours[ol->n_contours++] = ol->n_points - 1;
+}
+
 /*
  * Strike a glyph with a horizontal line; it's possible to underline it
  * and/or strike through it.  For the line's position and size, truetype
@@ -292,7 +337,6 @@ static int ass_strike_outline_glyph(FT_Face face, ASS_Font *font,
     TT_OS2 *os2 = FT_Get_Sfnt_Table(face, ft_sfnt_os2);
     TT_Postscript *ps = FT_Get_Sfnt_Table(face, ft_sfnt_post);
     FT_Outline *ol = &((FT_OutlineGlyph) glyph)->outline;
-    FT_Vector points[4];
     int bear, advance, y_scale, i, dir;
 
     if (!under && !through)
@@ -300,12 +344,17 @@ static int ass_strike_outline_glyph(FT_Face face, ASS_Font *font,
 
     // Grow outline
     i = (under ? 4 : 0) + (through ? 4 : 0);
-    ol->points = (FT_Vector *) realloc(ol->points, sizeof(FT_Vector) *
-                         (ol->n_points + i));
-    ol->tags = (char *) realloc(ol->tags, ol->n_points + i);
+    if (ol->n_points > SHRT_MAX - i)
+        return 0;
+    if (!ASS_REALLOC_ARRAY(ol->points, ol->n_points + i))
+        return 0;
+    if (!ASS_REALLOC_ARRAY(ol->tags, ol->n_points + i))
+        return 0;
     i = !!under + !!through;
-    ol->contours = (short *) realloc(ol->contours, sizeof(short) *
-                           (ol->n_contours + i));
+    if (ol->n_contours > SHRT_MAX - i)
+        return 0;
+    if (!ASS_REALLOC_ARRAY(ol->contours, ol->n_contours + i))
+        return 0;
 
     // If the bearing is negative, the glyph starts left of the current
     // pen position
@@ -319,90 +368,116 @@ static int ass_strike_outline_glyph(FT_Face face, ASS_Font *font,
 
     // Add points to the outline
     if (under && ps) {
-        int pos, size;
-        pos = FT_MulFix(ps->underlinePosition, y_scale * font->scale_y);
-        size = FT_MulFix(ps->underlineThickness,
-                         y_scale * font->scale_y / 2);
+        int pos = FT_MulFix(ps->underlinePosition, y_scale * font->scale_y);
+        int size = FT_MulFix(ps->underlineThickness,
+                             y_scale * font->scale_y / 2);
 
         if (pos > 0 || size <= 0)
             return 1;
 
-        points[0].x = bear;
-        points[0].y = pos + size;
-        points[1].x = advance;
-        points[1].y = pos + size;
-        points[2].x = advance;
-        points[2].y = pos - size;
-        points[3].x = bear;
-        points[3].y = pos - size;
-
-        if (dir == FT_ORIENTATION_TRUETYPE) {
-            for (i = 0; i < 4; i++) {
-                ol->points[ol->n_points] = points[i];
-                ol->tags[ol->n_points++] = 1;
-            }
-        } else {
-            for (i = 3; i >= 0; i--) {
-                ol->points[ol->n_points] = points[i];
-                ol->tags[ol->n_points++] = 1;
-            }
-        }
-
-        ol->contours[ol->n_contours++] = ol->n_points - 1;
+        add_line(ol, bear, advance, dir, pos, size);
     }
 
     if (through && os2) {
-        int pos, size;
-        pos = FT_MulFix(os2->yStrikeoutPosition, y_scale * font->scale_y);
-        size = FT_MulFix(os2->yStrikeoutSize, y_scale * font->scale_y / 2);
+        int pos = FT_MulFix(os2->yStrikeoutPosition, y_scale * font->scale_y);
+        int size = FT_MulFix(os2->yStrikeoutSize, y_scale * font->scale_y / 2);
 
         if (pos < 0 || size <= 0)
             return 1;
 
-        points[0].x = bear;
-        points[0].y = pos + size;
-        points[1].x = advance;
-        points[1].y = pos + size;
-        points[2].x = advance;
-        points[2].y = pos - size;
-        points[3].x = bear;
-        points[3].y = pos - size;
-
-        if (dir == FT_ORIENTATION_TRUETYPE) {
-            for (i = 0; i < 4; i++) {
-                ol->points[ol->n_points] = points[i];
-                ol->tags[ol->n_points++] = 1;
-            }
-        } else {
-            for (i = 3; i >= 0; i--) {
-                ol->points[ol->n_points] = points[i];
-                ol->tags[ol->n_points++] = 1;
-            }
-        }
-
-        ol->contours[ol->n_contours++] = ol->n_points - 1;
+        add_line(ol, bear, advance, dir, pos, size);
     }
 
     return 0;
 }
 
-void outline_copy(FT_Library lib, FT_Outline *source, FT_Outline **dest)
-{
-    if (source == NULL) {
-        *dest = NULL;
-        return;
-    }
-    *dest = calloc(1, sizeof(**dest));
 
-    FT_Outline_New(lib, source->n_points, source->n_contours, *dest);
-    FT_Outline_Copy(source, *dest);
+int outline_alloc(ASS_Outline *outline, size_t n_points, size_t n_contours)
+{
+    outline->contours = malloc(sizeof(size_t) * n_contours);
+    outline->points = malloc(sizeof(FT_Vector) * n_points);
+    outline->tags = malloc(n_points);
+    if (!outline->contours || !outline->points || !outline->tags)
+        return 0;
+
+    outline->max_contours = n_contours;
+    outline->max_points = n_points;
+    return 1;
 }
 
-void outline_free(FT_Library lib, FT_Outline *outline)
+ASS_Outline *outline_convert(const FT_Outline *source)
 {
-    if (outline)
-        FT_Outline_Done(lib, outline);
-    free(outline);
+    ASS_Outline *ol;
+    if (!source)
+        return NULL;
+
+    ol = calloc(1, sizeof(*ol));
+    if (!ol)
+        return NULL;
+
+    if (!outline_alloc(ol, source->n_points, source->n_contours)) {
+        outline_free(ol);
+        free(ol);
+        return NULL;
+    }
+
+    //if (source->flags & FT_OUTLINE_REVERSE_FILL) {
+    if (FT_Outline_Get_Orientation((FT_Outline *)source) != FT_ORIENTATION_TRUETYPE) {
+        int prev = 0;
+        for (int i = 0; i < source->n_contours; ++i) {
+            int last = source->contours[i];
+            ol->contours[i] = last;
+            ol->points[prev] = source->points[prev];
+            ol->tags[prev] = source->tags[prev];
+            for (int j = 0; j < last - prev; ++j) {
+                ol->points[last - j] = source->points[prev + j + 1];
+                ol->tags[last - j] = source->tags[prev + j + 1];
+            }
+            prev = last + 1;
+        }
+    } else {
+        for (int i = 0; i < source->n_contours; ++i)
+            ol->contours[i] = source->contours[i];
+        memcpy(ol->points, source->points, sizeof(FT_Vector) * source->n_points);
+        memcpy(ol->tags, source->tags, source->n_points);
+    }
+    ol->n_contours = source->n_contours;
+    ol->n_points = source->n_points;
+    return ol;
+}
+
+ASS_Outline *outline_copy(const ASS_Outline *source)
+{
+    ASS_Outline *ol;
+    if (!source)
+        return NULL;
+
+    ol = calloc(1, sizeof(*ol));
+    if (!ol)
+        return NULL;
+
+    if (!outline_alloc(ol, source->n_points, source->n_contours)) {
+        outline_free(ol);
+        free(ol);
+        return NULL;
+    }
+
+    memcpy(ol->contours, source->contours, sizeof(size_t) * source->n_contours);
+    memcpy(ol->points, source->points, sizeof(FT_Vector) * source->n_points);
+    memcpy(ol->tags, source->tags, source->n_points);
+    ol->n_contours = source->n_contours;
+    ol->n_points = source->n_points;
+    return ol;
+}
+
+void outline_free(ASS_Outline *outline)
+{
+    if (!outline)
+        return;
+
+    free(outline->contours);
+    free(outline->points);
+    free(outline->tags);
 }
 
 /**
@@ -450,13 +525,13 @@ int ass_font_get_index(void *fcpriv, ASS_Font *font, uint32_t symbol,
     // try with the requested face
     if (*face_index < font->n_faces) {
         face = font->faces[*face_index];
-        index = FT_Get_Char_Index(face, symbol);
+        index = FT_Get_Char_Index(face, ass_font_index_magic(face, symbol));
     }
 
     // not found in requested face, try all others
     for (i = 0; i < font->n_faces && index == 0; ++i) {
         face = font->faces[i];
-        index = FT_Get_Char_Index(face, symbol);
+        index = FT_Get_Char_Index(face, ass_font_index_magic(face, symbol));
         if (index)
             *face_index = i;
     }
@@ -471,14 +546,14 @@ int ass_font_get_index(void *fcpriv, ASS_Font *font, uint32_t symbol,
         face_idx = *face_index = add_face(fcpriv, font, symbol);
         if (face_idx >= 0) {
             face = font->faces[face_idx];
-            index = FT_Get_Char_Index(face, symbol);
+            index = FT_Get_Char_Index(face, ass_font_index_magic(face, symbol));
             if (index == 0 && face->num_charmaps > 0) {
                 int i;
                 ass_msg(font->library, MSGL_WARN,
                     "Glyph 0x%X not found, broken font? Trying all charmaps", symbol);
                 for (i = 0; i < face->num_charmaps; i++) {
                     FT_Set_Charmap(face, face->charmaps[i]);
-                    if ((index = FT_Get_Char_Index(face, symbol)) != 0) break;
+                    if ((index = FT_Get_Char_Index(face, ass_font_index_magic(face, symbol))) != 0) break;
                 }
             }
             if (index == 0) {
@@ -507,8 +582,6 @@ FT_Glyph ass_font_get_glyph(void *fontconfig_priv, ASS_Font *font,
 {
     int error;
     FT_Glyph glyph;
-    FT_Matrix scale;
-    FT_Outline *outl = NULL;
     FT_Face face = font->faces[face_index];
     int flags = 0;
     int vertical = font->desc.vertical;
@@ -568,11 +641,9 @@ FT_Glyph ass_font_get_glyph(void *fontconfig_priv, ASS_Font *font,
     }
 
     // Apply scaling and shift
-    scale.xx = double_to_d16(font->scale_x);
-    scale.xy = 0;
-    scale.yx = 0;
-    scale.yy  = double_to_d16(font->scale_y);
-    outl = &((FT_OutlineGlyph) glyph)->outline;
+    FT_Matrix scale = { double_to_d16(font->scale_x), 0, 0,
+                        double_to_d16(font->scale_y) };
+    FT_Outline *outl = &((FT_OutlineGlyph) glyph)->outline;
     FT_Outline_Transform(outl, &scale);
     FT_Outline_Translate(outl, font->v.x, font->v.y);
     glyph->advance.x *= font->scale_x;
@@ -596,8 +667,8 @@ FT_Vector ass_font_get_kerning(ASS_Font *font, uint32_t c1, uint32_t c2)
 
     for (i = 0; i < font->n_faces; ++i) {
         FT_Face face = font->faces[i];
-        int i1 = FT_Get_Char_Index(face, c1);
-        int i2 = FT_Get_Char_Index(face, c2);
+        int i1 = FT_Get_Char_Index(face, ass_font_index_magic(face, c1));
+        int i2 = FT_Get_Char_Index(face, ass_font_index_magic(face, c2));
         if (i1 && i2) {
             if (FT_HAS_KERNING(face))
                 FT_Get_Kerning(face, i1, i2, FT_KERNING_DEFAULT, &v);
@@ -615,11 +686,11 @@ FT_Vector ass_font_get_kerning(ASS_Font *font, uint32_t c1, uint32_t c2)
 void ass_font_free(ASS_Font *font)
 {
     int i;
+    if (font->shaper_priv)
+        ass_shaper_font_data_free(font->shaper_priv);
     for (i = 0; i < font->n_faces; ++i)
         if (font->faces[i])
             FT_Done_Face(font->faces[i]);
-    if (font->shaper_priv)
-        ass_shaper_font_data_free(font->shaper_priv);
     free(font->desc.family);
     free(font);
 }
@@ -630,9 +701,9 @@ void ass_font_free(ASS_Font *font)
 static void
 get_contour_cbox(FT_BBox *box, FT_Vector *points, int start, int end)
 {
-    int i;
     box->xMin = box->yMin = INT_MAX;
     box->xMax = box->yMax = INT_MIN;
+    int i;
 
     for (i = start; i <= end; i++) {
         box->xMin = (points[i].x < box->xMin) ? points[i].x : box->xMin;
@@ -661,6 +732,43 @@ static int get_contour_direction(FT_Vector *points, int start, int end)
     return sum > 0;
 }
 
+void outline_translate(const ASS_Outline *outline, FT_Pos dx, FT_Pos dy)
+{
+    for (size_t i = 0; i < outline->n_points; ++i) {
+        outline->points[i].x += dx;
+        outline->points[i].y += dy;
+    }
+}
+
+void outline_transform(const ASS_Outline *outline, const FT_Matrix *matrix)
+{
+    for (size_t i = 0; i < outline->n_points; ++i) {
+        FT_Pos x = FT_MulFix(outline->points[i].x, matrix->xx) +
+                   FT_MulFix(outline->points[i].y, matrix->xy);
+        FT_Pos y = FT_MulFix(outline->points[i].x, matrix->yx) +
+                   FT_MulFix(outline->points[i].y, matrix->yy);
+        outline->points[i].x = x;
+        outline->points[i].y = y;
+    }
+}
+
+void outline_get_cbox(const ASS_Outline *outline, FT_BBox *cbox)
+{
+    if (!outline->n_points) {
+        cbox->xMin = cbox->xMax = 0;
+        cbox->yMin = cbox->yMax = 0;
+        return;
+    }
+    cbox->xMin = cbox->xMax = outline->points[0].x;
+    cbox->yMin = cbox->yMax = outline->points[0].y;
+    for (size_t i = 1; i < outline->n_points; ++i) {
+        cbox->xMin = FFMIN(cbox->xMin, outline->points[i].x);
+        cbox->xMax = FFMAX(cbox->xMax, outline->points[i].x);
+        cbox->yMin = FFMIN(cbox->yMin, outline->points[i].y);
+        cbox->yMax = FFMAX(cbox->yMax, outline->points[i].y);
+    }
+}
+
 /**
  * \brief Apply fixups to please the FreeType stroker and improve the
  * rendering result, especially in case the outline has some anomalies.
@@ -677,7 +785,7 @@ static int get_contour_direction(FT_Vector *points, int start, int end)
  * \param border_x border size, x direction, d6 format
  * \param border_x border size, y direction, d6 format
  */
-void fix_freetype_stroker(FT_Outline *outline, int border_x, int border_y)
+void fix_freetype_stroker(ASS_Outline *outline, int border_x, int border_y)
 {
     int nc = outline->n_contours;
     int begin, stop;
@@ -687,10 +795,6 @@ void fix_freetype_stroker(FT_Outline *outline, int border_x, int border_y)
     int end = -1;
     FT_BBox *boxes = malloc(nc * sizeof(FT_BBox));
     int i, j;
-    int inside_direction;
-
-    inside_direction = FT_Outline_Get_Orientation(outline) ==
-        FT_ORIENTATION_TRUETYPE;
 
     // create a list of cboxes of the contours
     for (i = 0; i < nc; i++) {
@@ -703,12 +807,11 @@ void fix_freetype_stroker(FT_Outline *outline, int border_x, int border_y)
     // or contained in another contour
     end = -1;
     for (i = 0; i < nc; i++) {
-        int dir;
         start = end + 1;
         end = outline->contours[i];
-        dir = get_contour_direction(outline->points, start, end);
+        int dir = get_contour_direction(outline->points, start, end);
         valid_cont[i] = 1;
-        if (dir == inside_direction) {
+        if (dir) {
             for (j = 0; j < nc; j++) {
                 if (i == j)
                     continue;
@@ -732,12 +835,11 @@ void fix_freetype_stroker(FT_Outline *outline, int border_x, int border_y)
             dir ^= 1;
         }
         check_inside:
-        if (dir == inside_direction) {
+        if (dir) {
             FT_BBox box;
-            int width, height;
             get_contour_cbox(&box, outline->points, start, end);
-            width = box.xMax - box.xMin;
-            height = box.yMax - box.yMin;
+            int width = box.xMax - box.xMin;
+            int height = box.yMax - box.yMin;
             if (width < border_x * 2 || height < border_y * 2) {
                 valid_cont[i] = 0;
                 modified = 1;

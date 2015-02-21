@@ -30,14 +30,30 @@ ASS_SynthPriv *ass_synth_init(double);
 void ass_synth_done(ASS_SynthPriv *priv);
 
 typedef struct {
+    size_t n_contours, max_contours;
+    size_t *contours;
+    size_t n_points, max_points;
+    FT_Vector *points;
+    char *tags;
+} ASS_Outline;
+
+#define EFFICIENT_CONTOUR_COUNT 8
+
+typedef struct {
     int left, top;
     int w, h;                   // width, height
     int stride;
-    unsigned char *buffer;      // w x h buffer
+    unsigned char *buffer;      // h * stride buffer
 } Bitmap;
 
-Bitmap *outline_to_bitmap(ASS_Library *library, FT_Library ftlib,
-                          FT_Outline *outline, int bord);
+Bitmap *outline_to_bitmap(ASS_Renderer *render_priv,
+                          ASS_Outline *outline, int bord);
+
+Bitmap *alloc_bitmap(int w, int h);
+
+void ass_synth_blur(ASS_SynthPriv *priv_blur, int opaque_box, int be,
+                    double blur_radius, Bitmap *bm_g, Bitmap *bm_o);
+
 /**
  * \brief perform glyph rendering
  * \param glyph original glyph
@@ -48,12 +64,30 @@ Bitmap *outline_to_bitmap(ASS_Library *library, FT_Library ftlib,
  * \param be 1 = produces blurred bitmaps, 0 = normal bitmaps
  * \param border_visible whether border is visible if border_style is 3
  */
-int outline_to_bitmap3(ASS_Library *library, ASS_SynthPriv *priv_blur,
-                       FT_Library ftlib, FT_Outline *outline, FT_Outline *border,
+int outline_to_bitmap3(ASS_Renderer *render_priv, ASS_Outline *outline, ASS_Outline *border,
                        Bitmap **bm_g, Bitmap **bm_o, Bitmap **bm_s,
                        int be, double blur_radius, FT_Vector shadow_offset,
                        int border_style, int border_visible);
 
 void ass_free_bitmap(Bitmap *bm);
+void ass_gauss_blur(unsigned char *buffer, unsigned *tmp2,
+                    int width, int height, int stride,
+                    unsigned *m2, int r, int mwidth);
+void be_blur_c(uint8_t *buf, intptr_t w,
+               intptr_t h, intptr_t stride,
+               uint16_t *tmp);
+void add_bitmaps_c(uint8_t *dst, intptr_t dst_stride,
+                   uint8_t *src, intptr_t src_stride,
+                   intptr_t height, intptr_t width);
+void sub_bitmaps_c(uint8_t *dst, intptr_t dst_stride,
+                   uint8_t *src, intptr_t src_stride,
+                   intptr_t height, intptr_t width);
+void mul_bitmaps_c(uint8_t *dst, intptr_t dst_stride,
+                   uint8_t *src1, intptr_t src1_stride,
+                   uint8_t *src2, intptr_t src2_stride,
+                   intptr_t w, intptr_t h);
+void shift_bitmap(Bitmap *bm, int shift_x, int shift_y);
+void fix_outline(Bitmap *bm_g, Bitmap *bm_o);
+Bitmap *copy_bitmap(const Bitmap *src);
 
 #endif                          /* LIBASS_BITMAP_H */
