@@ -35,14 +35,15 @@ typedef struct {
 } BitmapHashValue;
 
 typedef struct {
-    unsigned char *a;
-    unsigned char *b;
+    Bitmap *bm;
+    Bitmap *bm_o;
+    Bitmap *bm_s;
+    FT_Vector pos;
 } CompositeHashValue;
 
 typedef struct {
-    FT_Library lib;
-    FT_Outline *outline;
-    FT_Outline *border;
+    ASS_Outline *outline;
+    ASS_Outline *border;
     FT_BBox bbox_scaled;        // bbox after scaling, but before rotation
     FT_Vector advance;          // 26.6, advance distance to the next outline in line
     int asc, desc;              // ascender/descender

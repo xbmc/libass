@@ -18,11 +18,12 @@
 
 #include "config.h"
 
+#include <stddef.h>
 #include <stdlib.h>
 #include <stdio.h>
+#include <stdint.h>
 #include <inttypes.h>
-#include <ft2build.h>
-#include FT_GLYPH_H
+#include <limits.h>
 
 #include "ass_library.h"
 #include "ass.h"
@@ -33,118 +34,209 @@ FILE *fopen_utf8(const char *_Filename, const char *_Mode)
   return fopen(_Filename, _Mode);
 }
 
+#if (defined(__i386__) || defined(__x86_64__)) && CONFIG_ASM
+
+#include "x86/cpuid.h"
+
+int has_sse2(void)
+{
+    uint32_t eax = 1, ebx, ecx, edx;
+    ass_get_cpuid(&eax, &ebx, &ecx, &edx);
+    return (edx >> 26) & 0x1;
+}
+
+int has_avx(void)
+{
+    uint32_t eax = 1, ebx, ecx, edx;
+    ass_get_cpuid(&eax, &ebx, &ecx, &edx);
+    if(!(ecx & (1 << 27))) // not OSXSAVE
+        return 0;
+    uint32_t misc = ecx;
+    eax = 0;
+    ass_get_cpuid(&eax, &ebx, &ecx, &edx);
+    return (ecx & 0x6) == 0x6 ? (misc >> 28) & 0x1 : 0; // check high bits are relevant, then AVX support
+}
+
+int has_avx2(void)
+{
+    uint32_t eax = 7, ebx, ecx, edx;
+    ass_get_cpuid(&eax, &ebx, &ecx, &edx);
+    return (ebx >> 5) & has_avx();
+}
+
+#endif // ASM
+
+#ifndef HAVE_STRNDUP
+char *ass_strndup(const char *s, size_t n)
+{
+    char *end = memchr(s, 0, n);
+    size_t len = end ? end - s : n;
+    char *new = len < SIZE_MAX ? malloc(len + 1) : NULL;
+    if (new) {
+        memcpy(new, s, len);
+        new[len] = 0;
+    }
+    return new;
+}
+#endif
+
+void *ass_aligned_alloc(size_t alignment, size_t size)
+{
+    assert(!(alignment & (alignment - 1))); // alignment must be power of 2
+    if (size >= SIZE_MAX - alignment - sizeof(void *))
+        return NULL;
+    char *allocation = malloc(size + sizeof(void *) + alignment - 1);
+    if (!allocation)
+        return NULL;
+    char *ptr = allocation + sizeof(void *);
+    unsigned int misalign = (uintptr_t)ptr & (alignment - 1);
+    if (misalign)
+        ptr += alignment - misalign;
+    *((void **)ptr - 1) = allocation;
+    return ptr;
+}
+
+void ass_aligned_free(void *ptr)
+{
+    if (ptr)
+        free(*((void **)ptr - 1));
+}
+
+/**
+ * This works similar to realloc(ptr, nmemb * size), but checks for overflow.
+ *
+ * Unlike some implementations of realloc, this never acts as a call to free().
+ * If the total size is 0, it is bumped up to 1. This means a NULL return always
+ * means allocation failure, and the unportable realloc(0, 0) case is avoided.
+ */
+void *ass_realloc_array(void *ptr, size_t nmemb, size_t size)
+{
+    if (nmemb > (SIZE_MAX / size))
+        return NULL;
+    size *= nmemb;
+    if (size < 1)
+        size = 1;
+
+    return realloc(ptr, size);
+}
+
+/**
+ * Like ass_realloc_array(), but:
+ * 1. on failure, return the original ptr value, instead of NULL
+ * 2. set errno to indicate failure (errno!=0) or success (errno==0)
+ */
+void *ass_try_realloc_array(void *ptr, size_t nmemb, size_t size)
+{
+    void *new_ptr = ass_realloc_array(ptr, nmemb, size);
+    if (new_ptr) {
+        errno = 0;
+        return new_ptr;
+    } else {
+        errno = ENOMEM;
+        return ptr;
+    }
+}
+
+void skip_spaces(char **str)
+{
+    char *p = *str;
+    while ((*p == ' ') || (*p == '\t'))
+        ++p;
+    *str = p;
+}
+
+void rskip_spaces(char **str, char *limit)
+{
+    char *p = *str;
+    while ((p > limit) && ((p[-1] == ' ') || (p[-1] == '\t')))
+        --p;
+    *str = p;
+}
+
 int mystrtoi(char **p, int *res)
 {
-    double temp_res;
     char *start = *p;
-    temp_res = ass_strtod(*p, p);
+    double temp_res = ass_strtod(*p, p);
     *res = (int) (temp_res + (temp_res > 0 ? 0.5 : -0.5));
-    if (*p != start)
-        return 1;
-    else
-        return 0;
+    return *p != start;
 }
 
 int mystrtoll(char **p, long long *res)
 {
-    double temp_res;
     char *start = *p;
-    temp_res = ass_strtod(*p, p);
-    *res = (int) (temp_res + (temp_res > 0 ? 0.5 : -0.5));
-    if (*p != start)
-        return 1;
-    else
-        return 0;
+    double temp_res = ass_strtod(*p, p);
+    *res = (long long) (temp_res + (temp_res > 0 ? 0.5 : -0.5));
+    return *p != start;
 }
 
 int mystrtou32(char **p, int base, uint32_t *res)
 {
     char *start = *p;
     *res = strtoll(*p, p, base);
-    if (*p != start)
-        return 1;
-    else
-        return 0;
+    return *p != start;
 }
 
 int mystrtod(char **p, double *res)
 {
     char *start = *p;
     *res = ass_strtod(*p, p);
-    if (*p != start)
-        return 1;
-    else
-        return 0;
+    return *p != start;
 }
 
-int strtocolor(ASS_Library *library, char **q, uint32_t *res, int hex)
+uint32_t string2color(ASS_Library *library, char *p, int hex)
 {
     uint32_t color = 0;
-    int result;
-    char *p = *q;
     int base = hex ? 16 : 10;
 
     if (*p == '&')
-        ++p;
+        while (*p == '&')
+            ++p;
     else
         ass_msg(library, MSGL_DBG2, "suspicious color format: \"%s\"\n", p);
 
     if (*p == 'H' || *p == 'h') {
         ++p;
-        result = mystrtou32(&p, 16, &color);
-    } else {
-        result = mystrtou32(&p, base, &color);
-    }
+        mystrtou32(&p, 16, &color);
+    } else
+        mystrtou32(&p, base, &color);
 
-    {
-        unsigned char *tmp = (unsigned char *) (&color);
-        unsigned char b;
-        b = tmp[0];
-        tmp[0] = tmp[3];
-        tmp[3] = b;
-        b = tmp[1];
-        tmp[1] = tmp[2];
-        tmp[2] = b;
-    }
-    if (*p == '&')
+    while (*p == '&' || *p == 'H')
         ++p;
-    *q = p;
 
-    *res = color;
-    return result;
+    unsigned char *tmp = (unsigned char *) (&color);
+    unsigned char b;
+    b = tmp[0];
+    tmp[0] = tmp[3];
+    tmp[3] = b;
+    b = tmp[1];
+    tmp[1] = tmp[2];
+    tmp[2] = b;
+
+    return color;
 }
 
 // Return a boolean value for a string
 char parse_bool(char *str)
 {
-    while (*str == ' ' || *str == '\t')
-        str++;
-    if (!strncasecmp(str, "yes", 3))
-        return 1;
-    else if (strtol(str, NULL, 10) > 0)
-        return 1;
-    return 0;
+    skip_spaces(&str);
+    return !strncasecmp(str, "yes", 3) || strtol(str, NULL, 10) > 0;
 }
 
 int parse_ycbcr_matrix(char *str)
 {
-    char *end = NULL;
-    char buffer[16];
-    size_t n;
-    while (*str == ' ' || *str == '\t')
-        str++;
+    skip_spaces(&str);
     if (*str == '\0')
         return YCBCR_DEFAULT;
 
-    end = str + strlen(str);
-    while (end[-1] == ' ' || end[-1] == '\t')
-        end--;
+    char *end = str + strlen(str);
+    rskip_spaces(&end, str);
 
     // Trim a local copy of the input that we know is safe to
     // modify. The buffer is larger than any valid string + NUL,
     // so we can simply chop off the rest of the input.
-    n = FFMIN(end - str, sizeof buffer - 1);
-    strncpy(buffer, str, n);
+    char buffer[16];
+    size_t n = FFMIN(end - str, sizeof buffer - 1);
+    memcpy(buffer, str, n);
     buffer[n] = '\0';
 
     if (!strcasecmp(buffer, "none"))
@@ -207,6 +299,38 @@ unsigned ass_utf8_get_char(char **str)
 }
 
 /**
+ * Original version from http://www.cprogramming.com/tutorial/utf8.c
+ * \brief Converts a single UTF-32 code point to UTF-8
+ * \param dest Buffer to write to. Writes a NULL terminator.
+ * \param ch 32-bit character code to convert
+ * \return number of bytes written
+ * converts a single character and ASSUMES YOU HAVE ENOUGH SPACE
+ */
+unsigned ass_utf8_put_char(char *dest, uint32_t ch)
+{
+    char *orig_dest = dest;
+
+    if (ch < 0x80) {
+        *dest++ = (char)ch;
+    } else if (ch < 0x800) {
+        *dest++ = (ch >> 6) | 0xC0;
+        *dest++ = (ch & 0x3F) | 0x80;
+    } else if (ch < 0x10000) {
+        *dest++ = (ch >> 12) | 0xE0;
+        *dest++ = ((ch >> 6) & 0x3F) | 0x80;
+        *dest++ = (ch & 0x3F) | 0x80;
+    } else if (ch < 0x110000) {
+        *dest++ = (ch >> 18) | 0xF0;
+        *dest++ = ((ch >> 12) & 0x3F) | 0x80;
+        *dest++ = ((ch >> 6) & 0x3F) | 0x80;
+        *dest++ = (ch & 0x3F) | 0x80;
+    }
+
+    *dest = '\0';
+    return dest - orig_dest;
+}
+
+/**
  * \brief find style by name
  * \param track track
  * \param name style name
@@ -240,19 +364,21 @@ int lookup_style(ASS_Track *track, char *name)
  * \brief find style by name as in \r
  * \param track track
  * \param name style name
+ * \param len style name length
  * \return style in track->styles
  * Returns NULL if no style has the given name.
  */
-ASS_Style *lookup_style_strict(ASS_Track *track, char *name)
+ASS_Style *lookup_style_strict(ASS_Track *track, char *name, size_t len)
 {
     int i;
     for (i = track->n_styles - 1; i >= 0; --i) {
-        if (strcmp(track->styles[i].Name, name) == 0)
+        if (strncmp(track->styles[i].Name, name, len) == 0 &&
+            track->styles[i].Name[len] == '\0')
             return track->styles + i;
     }
     ass_msg(track->library, MSGL_WARN,
-            "[%p]: Warning: no style named '%s' found",
-            track, name);
+            "[%p]: Warning: no style named '%.*s' found",
+            track, (int) len, name);
     return NULL;
 }
 

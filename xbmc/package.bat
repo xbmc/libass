@@ -1,7 +1,7 @@
 @echo off
 echo Packaging archive for XBMC...
 setlocal enableextensions
-set version=0.10.2
+set version=0.12.1
 
 mkdir "libass-%version%-win32\project\BuildDependencies\lib"
 mkdir "libass-%version%-win32\project\BuildDependencies\include\ass"

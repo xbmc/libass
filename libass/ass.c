@@ -65,7 +65,11 @@ struct parser_priv {
 };
 
 #define ASS_STYLES_ALLOC 20
-#define ASS_EVENTS_ALLOC 200
+
+int ass_library_version(void)
+{
+    return LIBASS_VERSION;
+}
 
 void ass_free_track(ASS_Track *track)
 {
@@ -125,7 +129,7 @@ int ass_alloc_event(ASS_Track *track)
     assert(track->n_events <= track->max_events);
 
     if (track->n_events == track->max_events) {
-        track->max_events += ASS_EVENTS_ALLOC;
+        track->max_events = track->max_events * 2 + 1;
         track->events =
             (ASS_Event *) realloc(track->events,
                                   sizeof(ASS_Event) *
@@ -157,22 +161,6 @@ void ass_free_style(ASS_Track *track, int sid)
 
 // ==============================================================================================
 
-static void skip_spaces(char **str)
-{
-    char *p = *str;
-    while ((*p == ' ') || (*p == '\t'))
-        ++p;
-    *str = p;
-}
-
-static void rskip_spaces(char **str, char *limit)
-{
-    char *p = *str;
-    while ((p >= limit) && ((*p == ' ') || (*p == '\t')))
-        --p;
-    *str = p;
-}
-
 /**
  * \brief Set up default style
  * \param style style to edit to defaults
@@ -197,13 +185,6 @@ static void set_default_style(ASS_Style *style)
     style->Shadow           = 3;
     style->Alignment        = 2;
     style->MarginL = style->MarginR = style->MarginV = 20;
-}
-
-static uint32_t string2color(ASS_Library *library, char *p)
-{
-    uint32_t tmp;
-    (void) strtocolor(library, &p, &tmp, 0);
-    return tmp;
 }
 
 static long long string2timecode(ASS_Library *library, char *p)
@@ -237,43 +218,51 @@ static int numpad2align(int val)
 	token = next_token(&str); \
 	if (!token) break;
 
+
+#define ALIAS(alias,name) \
+        if (strcasecmp(tname, #alias) == 0) {tname = #name;}
+
+/* One section started with PARSE_START and PARSE_END parses a single token
+ * (contained in the variable named token) for the header indicated by the
+ * variable tname. It does so by chaining a number of else-if statements, each
+ * of which checks if the tname variable indicates that this header should be
+ * parsed. The first parameter of the macro gives the name of the header.
+ *
+ * The string that is passed is in str. str is advanced to the next token if
+ * a header could be parsed. The parsed results are stored in the variable
+ * target, which has the type ASS_Style* or ASS_Event*.
+ */
+#define PARSE_START if (0) {
+#define PARSE_END   }
+
 #define ANYVAL(name,func) \
 	} else if (strcasecmp(tname, #name) == 0) { \
-		target->name = func(token); \
-		ass_msg(track->library, MSGL_DBG2, "%s = %s", #name, token);
+		target->name = func(token);
 
 #define STRVAL(name) \
 	} else if (strcasecmp(tname, #name) == 0) { \
 		if (target->name != NULL) free(target->name); \
-		target->name = strdup(token); \
-		ass_msg(track->library, MSGL_DBG2, "%s = %s", #name, token);
+		target->name = strdup(token);
 
 #define STARREDSTRVAL(name) \
     } else if (strcasecmp(tname, #name) == 0) { \
         if (target->name != NULL) free(target->name); \
         while (*token == '*') ++token; \
-        target->name = strdup(token); \
-        ass_msg(track->library, MSGL_DBG2, "%s = %s", #name, token);
+        target->name = strdup(token);
 
 #define COLORVAL(name) \
 	} else if (strcasecmp(tname, #name) == 0) { \
-		target->name = string2color(track->library, token); \
-		ass_msg(track->library, MSGL_DBG2, "%s = %s", #name, token);
+		target->name = string2color(track->library, token, 0);
 
 #define INTVAL(name) ANYVAL(name,atoi)
 #define FPVAL(name) ANYVAL(name,ass_atof)
 #define TIMEVAL(name) \
 	} else if (strcasecmp(tname, #name) == 0) { \
-		target->name = string2timecode(track->library, token); \
-		ass_msg(track->library, MSGL_DBG2, "%s = %s", #name, token);
+		target->name = string2timecode(track->library, token);
 
 #define STYLEVAL(name) \
 	} else if (strcasecmp(tname, #name) == 0) { \
-		target->name = lookup_style(track, token); \
-		ass_msg(track->library, MSGL_DBG2, "%s = %s", #name, token);
-
-#define ALIAS(alias,name) \
-	if (strcasecmp(tname, #alias) == 0) {tname = #name;}
+		target->name = lookup_style(track, token);
 
 static char *next_token(char **str)
 {
@@ -293,12 +282,7 @@ static char *next_token(char **str)
         *p = '\0';
         *str = p + 1;           // ',' found, str will point to the next char (beginning of the next token)
     }
-    --p;                        // end of current token
-    rskip_spaces(&p, start);
-    if (p < start)
-        p = start;              // empty token
-    else
-        ++p;                    // the first space character, or '\0'
+    rskip_spaces(&p, start);    // end of current token: the first space character, or '\0'
     *p = '\0';
     return start;
 }
@@ -344,7 +328,6 @@ static int process_event_tail(ASS_Track *track, ASS_Event *event,
                 if (last >= event->Text && *last == '\r')
                     *last = 0;
             }
-            ass_msg(track->library, MSGL_DBG2, "Text = %s", event->Text);
             event->Duration -= event->Start;
             free(format);
             return 0;           // "Text" is always the last
@@ -352,7 +335,7 @@ static int process_event_tail(ASS_Track *track, ASS_Event *event,
         NEXT(p, token);
 
         ALIAS(End, Duration)    // temporarily store end timecode in event->Duration
-        if (0) {            // cool ;)
+        PARSE_START
             INTVAL(Layer)
             STYLEVAL(Style)
             STRVAL(Name)
@@ -362,7 +345,7 @@ static int process_event_tail(ASS_Track *track, ASS_Event *event,
             INTVAL(MarginV)
             TIMEVAL(Start)
             TIMEVAL(Duration)
-        }
+        PARSE_END
     }
     free(format);
     return 1;
@@ -418,7 +401,7 @@ void ass_process_force_style(ASS_Track *track)
             if (style == NULL
                 || strcasecmp(track->styles[sid].Name, style) == 0) {
                 target = track->styles + sid;
-                if (0) {
+                PARSE_START
                     STRVAL(FontName)
                     COLORVAL(PrimaryColour)
                     COLORVAL(SecondaryColour)
@@ -430,7 +413,7 @@ void ass_process_force_style(ASS_Track *track)
                     INTVAL(Underline)
                     INTVAL(StrikeOut)
                     FPVAL(Spacing)
-                    INTVAL(Angle)
+                    FPVAL(Angle)
                     INTVAL(BorderStyle)
                     INTVAL(Alignment)
                     INTVAL(MarginL)
@@ -442,7 +425,7 @@ void ass_process_force_style(ASS_Track *track)
                     FPVAL(Outline)
                     FPVAL(Shadow)
                     FPVAL(Blur)
-                }
+                PARSE_END
             }
         }
         *eq = '=';
@@ -512,7 +495,7 @@ static int process_style(ASS_Track *track, char *str)
         NEXT(q, tname);
         NEXT(p, token);
 
-        if (0) {                // cool ;)
+        PARSE_START
             STARREDSTRVAL(Name)
             if (strcmp(target->Name, "Default") == 0)
                 track->default_style = sid;
@@ -536,6 +519,11 @@ static int process_style(ASS_Track *track, char *str)
             INTVAL(Alignment)
             if (track->track_type == TRACK_TYPE_ASS)
                 target->Alignment = numpad2align(target->Alignment);
+            // VSFilter compatibility
+            else if (target->Alignment == 8)
+                target->Alignment = 3;
+            else if (target->Alignment == 4)
+                target->Alignment = 11;
             INTVAL(MarginL)
             INTVAL(MarginR)
             INTVAL(MarginV)
@@ -544,13 +532,17 @@ static int process_style(ASS_Track *track, char *str)
             FPVAL(ScaleY)
             FPVAL(Outline)
             FPVAL(Shadow)
-        }
+        PARSE_END
     }
-    style->ScaleX /= 100.;
-    style->ScaleY /= 100.;
+    style->ScaleX = FFMAX(style->ScaleX, 0.) / 100.;
+    style->ScaleY = FFMAX(style->ScaleY, 0.) / 100.;
+    style->Spacing = FFMAX(style->Spacing, 0.);
+    style->Outline = FFMAX(style->Outline, 0.);
+    style->Shadow = FFMAX(style->Shadow, 0.);
     style->Bold = !!style->Bold;
     style->Italic = !!style->Italic;
     style->Underline = !!style->Underline;
+    style->StrikeOut = !!style->StrikeOut;
     if (!style->Name)
         style->Name = strdup("Default");
     if (!style->FontName)
@@ -595,9 +587,7 @@ static int process_info_line(ASS_Track *track, char *str)
     } else if (!strncmp(str, "Language:", 9)) {
         char *p = str + 9;
         while (*p && isspace(*p)) p++;
-        track->Language = malloc(3);
-        strncpy(track->Language, p, 2);
-        track->Language[2] = 0;
+        track->Language = strndup(p, 2);
     }
     return 0;
 }
@@ -685,6 +675,8 @@ static int decode_font(ASS_Track *track)
         goto error_decode_font;
     }
     buf = malloc(size / 4 * 3 + 2);
+    if (!buf)
+        goto error_decode_font;
     q = buf;
     for (i = 0, p = (unsigned char *) track->parser_priv->fontdata;
          i < size / 4; i++, p += 4) {
@@ -792,12 +784,6 @@ static int process_line(ASS_Track *track, char *str)
             break;
         }
     }
-
-    // there is no explicit end-of-font marker in ssa/ass
-    if ((track->parser_priv->state != PST_FONTS)
-        && (track->parser_priv->fontname))
-        decode_font(track);
-
     return 0;
 }
 
@@ -825,6 +811,9 @@ static int process_text(ASS_Track *track, char *str)
             break;
         p = q;
     }
+    // there is no explicit end-of-font marker in ssa/ass
+    if (track->parser_priv->fontname)
+        decode_font(track);
     return 0;
 }
 
@@ -837,6 +826,8 @@ static int process_text(ASS_Track *track, char *str)
 void ass_process_data(ASS_Track *track, char *data, int size)
 {
     char *str = malloc(size + 1);
+    if (!str)
+        return;
 
     memcpy(str, data, size);
     str[size] = '\0';
@@ -897,6 +888,8 @@ void ass_process_chunk(ASS_Track *track, char *data, int size,
     }
 
     str = malloc(size + 1);
+    if (!str)
+        return;
     memcpy(str, data, size);
     str[size] = '\0';
     ass_msg(track->library, MSGL_V, "Event at %" PRId64 ", +%" PRId64 ": %s",
@@ -983,6 +976,9 @@ static char *sub_recode(ASS_Library *library, char *data, size_t size,
 #endif
     }
 
+    if (icdsc == (iconv_t) (-1))
+        return NULL;
+
     {
         size_t osize = size;
         size_t ileft = size;
@@ -993,6 +989,8 @@ static char *sub_recode(ASS_Library *library, char *data, size_t size,
         int clear = 0;
 
         outbuf = malloc(osize);
+        if (!outbuf)
+            goto out;
         ip = data;
         op = outbuf;
 
@@ -1006,7 +1004,13 @@ static char *sub_recode(ASS_Library *library, char *data, size_t size,
             if (rc == (size_t) (-1)) {
                 if (errno == E2BIG) {
                     size_t offset = op - outbuf;
-                    outbuf = (char *) realloc(outbuf, osize + size);
+                    char *nbuf = realloc(outbuf, osize + size);
+                    if (!nbuf) {
+                        free(outbuf);
+                        outbuf = 0;
+                        goto out;
+                    }
+                    outbuf = nbuf;
                     op = outbuf + offset;
                     osize += size;
                     oleft += size;
@@ -1065,7 +1069,11 @@ static char *read_file(ASS_Library *library, char *fname, size_t *bufsize)
 
     ass_msg(library, MSGL_V, "File size: %ld", sz);
 
-    buf = malloc(sz + 1);
+    buf = sz < SIZE_MAX ? malloc(sz + 1) : NULL;
+    if (!buf) {
+        fclose(fp);
+        return NULL;
+    }
     assert(buf);
     bytes_read = 0;
     do {
@@ -1103,10 +1111,6 @@ static ASS_Track *parse_memory(ASS_Library *library, char *buf)
     // external SSA/ASS subs does not have ReadOrder field
     for (i = 0; i < track->n_events; ++i)
         track->events[i].ReadOrder = i;
-
-    // there is no explicit end-of-font marker in ssa/ass
-    if (track->parser_priv->fontname)
-        decode_font(track);
 
     if (track->track_type == TRACK_TYPE_UNKNOWN) {
         ass_free_track(track);
@@ -1294,9 +1298,15 @@ long long ass_step_sub(ASS_Track *track, long long now, int movement)
 ASS_Track *ass_new_track(ASS_Library *library)
 {
     ASS_Track *track = calloc(1, sizeof(ASS_Track));
+    if (!track)
+        return NULL;
     track->library = library;
     track->ScaledBorderAndShadow = 1;
     track->parser_priv = calloc(1, sizeof(ASS_ParserPriv));
+    if (!track->parser_priv) {
+        free(track);
+        return NULL;
+    }
     return track;
 }
 
