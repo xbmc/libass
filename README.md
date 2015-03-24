@@ -1,28 +1,21 @@
-This is libass for XBMC (Windows edition)
+libass Windows binaries for XBMC
 
-In order to build, you need the following dependecies:
- * Harfbuzz (Windows git repo here: https://github.com/blinkseb/harfbuzz)
- * Freetype (http://mirrors.xbmc.org/build-deps/win32/freetype-2.4.6-win32-2.7z)
- * fontconfig (http://mirrors.xbmc.org/build-deps/win32/fontconfig-dev_2.8.0-2_win32.zip)
- * fribidi (http://mirrors.xbmc.org/build-deps/win32/fribidi-0.19.2-lib-1.zip)
- * iconv (http://mirrors.xbmc.org/build-deps/win32/libiconv-1.13.1-win32.zip)
- * enca (grab it from an XBMC build. See http://wiki.xbmc.org/index.php?title=HOW-TO:Compile_XBMC_for_Windows_using_Git)
+Tools required:
+* Visual Studio 2013
 
-You need to extract these dependencies in the folder `deps` (create it if it does not exist). You must follow this structure:
- - deps/
-   - lib/
-     - libiconv.lib
-     - libfribidi.lib
-     - libenca.lib
-     - harfbuzz.lib
-     - freetype246MT.lib
-     - fontconfig.lib
-   - include
-     - iconv.h
-	 - hb-*.h
-	 - fribidi*.h
-	 - enca.h
-	 - freetype/*
-	 - fontconfig/*
-
-Open the VS solution, and build!
+To reproduce:
+1. Create harfbuzz-0.9.22.7z
+     git clone git://github.com/blinkseb/harfbuzz.git
+     Open win32/harfbuzz.sln with Visual Studio.
+     Build Release configuration
+     Run xbmc\package.bat to produce the final archive
+2. git clone git://github.com/xbmc/libass.git
+3. Call DownloadLibass.bat in folder win32\deps to download source code of libass from https://github.com/libass/libass
+4. Copy harfbuzz-0.9.22.7z into folder win32\deps\downloads
+5. Call DownloadBuildDeps.bat in folder win32\deps to download and extract following dependecies: fontconfig, freetype, harfbuzz, libfribidi, libiconv
+6. Grab libenca dependecies from an XBMC build (See http://wiki.xbmc.org/index.php?title=HOW-TO:Compile_XBMC_for_Windows_using_Git):
+     copy XBMC file project\VS2010Express\libs\libenca\Release\libenca.lib into win32\deps\lib
+     copy XBMC file lib\enca\lib\enca.h into win32\deps\include
+7. Apply patches in the folder patches
+8. Open .sln file in folder win32\VS2013 and compile as Debug and Release
+9. Run package.bat in folder win32\package to produce the final archive

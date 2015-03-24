@@ -1,0 +1,25 @@
+From d0ba2f952f0d754915e6bc18a25c99c48559882b Mon Sep 17 00:00:00 2001
+From: taxigps <taxigps@sina.com>
+Date: Sun, 15 Mar 2015 15:32:39 +0800
+Subject: [PATCH] fixed wrong frame top to clip when render
+
+---
+ libass/ass_render.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/libass/ass_render.c b/libass/ass_render.c
+index db48a5f..ae32436 100644
+--- a/libass/ass_render.c
++++ b/libass/ass_render.c
+@@ -2662,7 +2662,7 @@ ass_render_event(ASS_Renderer *render_priv, ASS_Event *event,
+                 y2scr(render_priv, render_priv->state.clip_y1);
+         } else if (valign == VALIGN_SUB) {
+             render_priv->state.clip_y0 =
+-                y2scr_sub(render_priv, render_priv->state.clip_y0);
++                y2scr_top(render_priv, render_priv->state.clip_y0);
+             render_priv->state.clip_y1 =
+                 y2scr_sub(render_priv, render_priv->state.clip_y1);
+         }
+-- 
+1.9.5.msysgit.0
+

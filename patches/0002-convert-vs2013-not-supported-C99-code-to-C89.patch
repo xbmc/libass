@@ -1,0 +1,76 @@
+From 1f2545f1099be087d8f78834eb5ec9ff808aa845 Mon Sep 17 00:00:00 2001
+From: taxigps <taxigps@sina.com>
+Date: Tue, 24 Mar 2015 09:07:38 +0800
+Subject: [PATCH] convert vs2013 not supported C99 code to C89
+
+---
+ libass/ass_bitmap.c | 3 ++-
+ libass/ass_font.c   | 6 ++++--
+ libass/ass_render.c | 3 ++-
+ 3 files changed, 8 insertions(+), 4 deletions(-)
+
+diff --git a/libass/ass_bitmap.c b/libass/ass_bitmap.c
+index 01bf013..0a18a43 100644
+--- a/libass/ass_bitmap.c
++++ b/libass/ass_bitmap.c
+@@ -124,9 +124,10 @@ static bool generate_tables(ASS_SynthPriv *priv, double radius)
+ 
+ static bool resize_tmp(ASS_SynthPriv *priv, int w, int h)
+ {
++    size_t needed;
+     if (w >= INT_MAX || (w + 1) > SIZE_MAX / 2 / sizeof(unsigned) / FFMAX(h, 1))
+         return false;
+-    size_t needed = sizeof(unsigned) * (w + 1) * h;
++    needed = sizeof(unsigned) * (w + 1) * h;
+     if (priv->tmp && priv->tmp_allocated >= needed)
+         return true;
+ 
+diff --git a/libass/ass_font.c b/libass/ass_font.c
+index 3633eb5..ab2511c 100644
+--- a/libass/ass_font.c
++++ b/libass/ass_font.c
+@@ -408,10 +408,11 @@ int outline_alloc(ASS_Outline *outline, size_t n_points, size_t n_contours)
+ 
+ ASS_Outline *outline_convert(const FT_Outline *source)
+ {
++    ASS_Outline *ol;
+     if (!source)
+         return NULL;
+ 
+-    ASS_Outline *ol = calloc(1, sizeof(*ol));
++    ol = calloc(1, sizeof(*ol));
+     if (!ol)
+         return NULL;
+ 
+@@ -448,10 +449,11 @@ ASS_Outline *outline_convert(const FT_Outline *source)
+ 
+ ASS_Outline *outline_copy(const ASS_Outline *source)
+ {
++    ASS_Outline *ol;
+     if (!source)
+         return NULL;
+ 
+-    ASS_Outline *ol = calloc(1, sizeof(*ol));
++    ol = calloc(1, sizeof(*ol));
+     if (!ol)
+         return NULL;
+ 
+diff --git a/libass/ass_render.c b/libass/ass_render.c
+index 4371aa3..db48a5f 100644
+--- a/libass/ass_render.c
++++ b/libass/ass_render.c
+@@ -497,9 +497,10 @@ render_glyph(ASS_Renderer *render_priv, Bitmap *bm, int dst_x, int dst_y,
+ // Return true if the object could be added, and the object is not NULL.
+ static bool free_list_add(ASS_Renderer *render_priv, void *object)
+ {
++    FreeList *l;
+     if (!object)
+         return false;
+-    FreeList *l = calloc(1, sizeof(FreeList));
++    l = calloc(1, sizeof(FreeList));
+     if (!l)
+         return false;
+     if (!render_priv->free_head) {
+-- 
+1.9.5.msysgit.0
+
