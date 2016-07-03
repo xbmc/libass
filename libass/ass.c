@@ -16,7 +16,9 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#if HAVE_CONFIG_H
 #include "config.h"
+#endif
 #include "ass_compat.h"
 
 #include <stdio.h>
@@ -27,6 +29,10 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <inttypes.h>
+
+#ifndef HAVE_DIRENT_H
+#include <windows.h>
+#endif
 
 #ifdef CONFIG_ICONV
 #include <iconv.h>
@@ -1068,6 +1074,7 @@ out:
 }
 #endif                          // ICONV
 
+
 /**
  * \brief read file contents into newly allocated buffer
  * \param fname file name
@@ -1125,6 +1132,33 @@ char *read_file(ASS_Library *library, char *fname, size_t *bufsize)
         *bufsize = sz;
     return buf;
 }
+
+#ifndef HAVE_DIRENT_H
+/**
+ * \brief read file contents into newly allocated buffer
+ * \param fname file name
+ * \param bufsize out: file size
+ * \return pointer to file contents. Caller is responsible for its deallocation.
+ */
+char *read_fileW(ASS_Library *library, wchar_t *fname, DWORD fileSize, size_t *bufsize)
+{
+  HANDLE hFile = CreateFileW(fname, GENERIC_READ, FILE_SHARE_READ, NULL,
+                              OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+
+  if (hFile == INVALID_HANDLE_VALUE)
+    return NULL;
+  
+  char *buf = malloc(fileSize + 1); //room for null
+  if (TRUE != ReadFile(hFile, (void*)buf, fileSize, 0, NULL))
+  {
+    free(buf);
+    ass_msg(library, MSGL_INFO, "Read failed for some reason");
+    return NULL;
+  }
+
+  return buf;
+}
+#endif
 
 /*
  * \param buf pointer to subtitle text in utf-8

@@ -16,7 +16,9 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#if HAVE_CONFIG_H
 #include "config.h"
+#endif
 #include "ass_compat.h"
 
 #include <stddef.h>
@@ -29,6 +31,9 @@
 #include "ass.h"
 #include "ass_utils.h"
 #include "ass_string.h"
+#if defined(WIN32) || defined(_MSC_VER)
+#include <windows.h>
+#endif
 
 #if (defined(__i386__) || defined(__x86_64__)) && CONFIG_ASM
 
@@ -506,3 +511,53 @@ ASS_Style *lookup_style_strict(ASS_Track *track, char *name, size_t len)
     return NULL;
 }
 
+#if defined(WIN32) || defined(_MSC_VER)
+wchar_t* to_utf16(const char* str, size_t length)
+{
+  if (length == 0)
+    length = strlen(str);
+
+  int result = MultiByteToWideChar(CP_UTF8, 0, str, length, NULL, 0);
+  if (result == 0)
+    return NULL;
+
+  length = result + 1;
+  wchar_t* dirPath = malloc(length * 2);
+  result = MultiByteToWideChar(CP_UTF8, 0, str, result, dirPath, length);
+
+  if (result == 0)
+  {
+    free(dirPath);
+    return NULL;
+  }
+
+  if (dirPath[length - 1] != '\0')
+    dirPath[length - 1] = '\0';
+
+  return dirPath;
+}
+
+char* to_utf8(const wchar_t* str, size_t length)
+{
+  if (length == 0)
+    length = wcslen(str);
+
+  int result = WideCharToMultiByte(CP_UTF8, 0, str, length, NULL, 0, NULL, NULL);
+  if (result == 0)
+    return NULL;
+
+  length = result + 1;
+  char *newStr = malloc(length);
+  result = WideCharToMultiByte(CP_UTF8, 0, str, result, newStr, length, NULL, NULL);
+  if (result == 0)
+  {
+    free(newStr);
+    return NULL;
+  }
+
+  if (newStr[length - 1] != '\0')
+    newStr[length - 1] = '\0';
+  
+  return newStr;
+}
+#endif

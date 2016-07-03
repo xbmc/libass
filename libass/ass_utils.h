@@ -45,6 +45,10 @@
 #define FFMIN(a,b) ((a) > (b) ? (b) : (a))
 #define FFMINMAX(c,a,b) FFMIN(FFMAX(c, a), b)
 
+#if __cplusplus
+extern "C" {
+#endif
+
 #if (defined(__i386__) || defined(__x86_64__)) && CONFIG_ASM
 int has_sse2(void);
 int has_avx(void);
@@ -196,4 +200,11 @@ static inline unsigned fnv_32a_str(char *str, unsigned hval)
     return hval;
 }
 
+#if defined(WIN32) || defined(_MSC_VER)
+wchar_t* to_utf16(const char* str, size_t length);
+char* to_utf8(const wchar_t* str, size_t length);
+#endif
+#if __cplusplus
+}
+#endif
 #endif                          /* LIBASS_UTILS_H */

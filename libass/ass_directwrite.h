@@ -16,14 +16,20 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include "ass_types.h"
-#include "ass_fontselect.h"
-
 #ifndef ASS_DIRECTWRITE_H
 #define ASS_DIRECTWRITE_H
 
+#include "ass_types.h"
+#include "ass_fontselect.h"
+
+#if __cplusplus
+extern "C" {
+#endif
 ASS_FontProvider *
 ass_directwrite_add_provider(ASS_Library *lib, ASS_FontSelector *selector,
                           const char *config);
+#if __cplusplus
+}
+#endif
 
 #endif
