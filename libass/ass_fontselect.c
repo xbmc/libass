@@ -17,7 +17,9 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#if HAVE_CONFIG_H
 #include "config.h"
+#endif
 #include "ass_compat.h"
 
 #include <stdlib.h>
@@ -31,7 +33,12 @@
 #include <limits.h>
 #include <ft2build.h>
 #include <sys/types.h>
+#if HAVE_DIRENT_H
 #include <dirent.h>
+#else
+#define WIN32_LEAN_AND_MEAN 1
+#include <windows.h>
+#endif
 #include FT_FREETYPE_H
 #include FT_SFNT_NAMES_H
 #include FT_TRUETYPE_IDS_H
@@ -161,6 +168,7 @@ static ASS_FontProviderFuncs ft_funcs = {
     .destroy_font      = destroy_font_ft,
 };
 
+#if HAVE_DIRENT_H
 static void load_fonts_from_dir(ASS_Library *library, const char *dir)
 {
     DIR *d = opendir(dir);
@@ -184,6 +192,65 @@ static void load_fonts_from_dir(ASS_Library *library, const char *dir)
     }
     closedir(d);
 }
+#else
+
+static void load_fonts_from_dir(ASS_Library *library, const char *dir)
+{
+  int len = strlen(dir);
+  int newLen = len + 1; //add an extra for null
+  if (len > 32000) //simple sanity checking, around max path length
+    return;
+  if (!(dir[0] == '\\' && dir[1] == '\\' && dir[2] == '?' && dir[3] == '\\'))
+    newLen += 4;
+
+  char * newDir = malloc(newLen);
+  strcpy_s(newDir, newLen, "\\\\?\\");
+  strcat_s(newDir, newLen, dir);
+
+  wchar_t *dirPath = to_utf16(newDir, newLen);
+  free(newDir);
+
+  if (!dirPath)
+    return;
+
+  WIN32_FIND_DATAW ffd;
+  HANDLE hFind;
+
+  hFind = FindFirstFileW(dirPath, &ffd);
+  if (hFind == INVALID_HANDLE_VALUE)
+  {
+    free(dirPath);
+    return;
+  }
+
+  do
+  {
+    if (!(ffd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY))
+    {
+      wchar_t buf[4000];
+      wcscpy_s(buf, 4000, dirPath);
+      wcscat_s(buf, 4000, L"\\");
+      wcscat_s(buf, 4000, ffd.cFileName);
+      size_t bufSize;
+      //we assume file size is less than 4GB, otherwise we're in trouble
+      //anyway
+      void *data = read_fileW(library, buf, ffd.nFileSizeLow, &bufSize);
+        if (data) {
+          char *name = to_utf8(ffd.cFileName, 0);
+          if (name)
+          {
+            ass_add_font(library, name, data, bufSize);
+            free(name);
+          }
+          free(data);
+        }
+    }
+  } while (FindNextFileW(hFind, &ffd) != 0);
+  FindClose(hFind);
+
+  free(dirPath);
+}
+#endif
 
 /**
  * \brief Create a bare font provider.
