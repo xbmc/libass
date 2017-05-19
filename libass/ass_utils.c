@@ -546,17 +546,17 @@ char* to_utf8(const wchar_t* str, size_t length)
   if (result == 0)
     return NULL;
 
-  length = result + 1;
-  char *newStr = malloc(length);
-  result = WideCharToMultiByte(CP_UTF8, 0, str, result, newStr, length, NULL, NULL);
+  int required = result + 1;
+  char *newStr = malloc(required);
+  result = WideCharToMultiByte(CP_UTF8, 0, str, length, newStr, required, NULL, NULL);
   if (result == 0)
   {
     free(newStr);
     return NULL;
   }
 
-  if (newStr[length - 1] != '\0')
-    newStr[length - 1] = '\0';
+  if (newStr[required - 1] != '\0')
+    newStr[required - 1] = '\0';
   
   return newStr;
 }
