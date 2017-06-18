@@ -29,6 +29,8 @@ typedef struct IDWritePixelSnapping IDWritePixelSnapping;
 typedef struct IDWriteTextFormat IDWriteTextFormat;
 typedef struct IDWriteTextLayout IDWriteTextLayout;
 typedef struct IDWriteTextRenderer IDWriteTextRenderer;
+typedef struct IDWriteFontFileEnumerator IDWriteFontFileEnumerator;
+typedef struct IDWriteFontCollectionLoader IDWriteFontCollectionLoader;
 
 #include <dcommon.h>
 
@@ -150,6 +152,57 @@ typedef struct DWRITE_UNDERLINE DWRITE_UNDERLINE;
 #endif
 #endif
 
+#undef INTERFACE
+#define INTERFACE IDWriteFontFileEnumerator
+DECLARE_INTERFACE_(IDWriteFontFileEnumerator,IUnknown)
+{
+    BEGIN_INTERFACE
+
+#ifndef __cplusplus
+    /* IUnknown methods */
+    STDMETHOD(QueryInterface)(THIS_ REFIID riid, void **ppvObject) PURE;
+    STDMETHOD_(ULONG, AddRef)(THIS) PURE;
+    STDMETHOD_(ULONG, Release)(THIS) PURE;
+#endif
+    STDMETHOD(MoveNext)(BOOL* hasCurrentFile) PURE;
+
+    STDMETHOD(GetCurrentFontFile)(IDWriteFontFile** fontFile) PURE;
+
+    END_INTERFACE
+};
+#ifdef COBJMACROS
+#define IDWriteFontFileEnumerator_QueryInterface(This,riid,ppvObject) (This)->lpVtbl->QueryInterface(This,riid,ppvObject)
+#define IDwriteFontFileEnumerator_AddRef(This) (This)->lpVtbl->AddRef(This)
+#define IDWriteFontFileEnumerator_Release(This) (This)->lpVtbl->Release(This)
+#define IDWriteFontFileEnumerator_MoveNext(This) (This)->lpVtbl->MoveNext(This, hasCurrentFile)
+#define IDWriteFontFileEnumerator_GetCurrentFontFile(This) (This)->lpVtbl->GetCurrentFontFile(This, fontFile)
+#endif /*COBJMACROS*/
+
+#undef INTERFACE
+#define INTERFACE IDWriteFontCollectionLoader 
+DECLARE_INTERFACE(IDWriteFontCollectionLoader, IUnknown)
+{
+    BEGIN_INTERFACE
+#ifndef __cplusplus
+    /* IUnknown methods */
+    STDMETHOD(QueryInterface)(THIS_ REFIID riid, void **ppvObject) PURE;
+    STDMETHOD_(ULONG, AddRef)(THIS) PURE;
+    STDMETHOD_(ULONG, Release)(THIS) PURE;
+#endif
+    STDMETHOD(CreateEnumeratorFromKey)(IDWriteFactory* factory,
+        void const* collectionKey,
+        UINT32 collectionKeySize,
+        IDWriteFontFileEnumerator** fontFileEnumerator) PURE;
+
+    END_INTERFACE
+};
+#ifdef COBJMACROS
+#define IDWriteFontCollectionLoader_QueryInterface(This,riid,ppvObject) (This)->lpVtbl->QueryInterface(This,riid,ppvObject)
+#define IDWriteFontCollectionLoader_AddRef(This) (This)->lpVtbl->AddRef(This)
+#define IDWriteFontCollectionLoader_Release(This) (This)->lpVtbl->Release(This)
+#define IDWriteFontCollectionLoader_CreateEnumeratorFromKey(This) (This)->lpVtbl->CreateEnumeratorFromKey(This, factor, collectionKey, collectionKeySize, fontFileEnumerator)
+#endif /*COBJMACROS*/
+
 #undef  INTERFACE
 #define INTERFACE IDWriteFactory
 DECLARE_INTERFACE_(IDWriteFactory,IUnknown)
@@ -168,9 +221,19 @@ DECLARE_INTERFACE_(IDWriteFactory,IUnknown)
         IDWriteFontCollection **fontCollection,
         BOOL checkForUpdates __MINGW_DEF_ARG_VAL(FALSE)) PURE;
 
-    STDMETHOD(dummy1)(THIS);
-    STDMETHOD(dummy2)(THIS);
-    STDMETHOD(dummy3)(THIS);
+    STDMETHOD(CreateCustomFontCollection)(THIS_
+        IDWriteFontCollectionLoader* collectionLoader,
+        void const* collectionKey,
+        UINT32 collectionKeySize,
+        IDWriteFontCollection** fontCollection) PURE;
+
+    STDMETHOD(RegisterFontCollectionLoader)(THIS_
+        IDWriteFontCollectionLoader *fontCollectionLoader) PURE;
+
+    STDMETHOD(UnregisterFontCollectionLoader)(THIS_
+        IDWriteFontCollectionLoader *fontCollectionLoader) PURE;
+
+
     STDMETHOD(dummy4)(THIS);
     STDMETHOD(dummy5)(THIS);
     STDMETHOD(dummy6)(THIS);
@@ -209,6 +272,9 @@ DECLARE_INTERFACE_(IDWriteFactory,IUnknown)
 #define IDWriteFactory_AddRef(This) (This)->lpVtbl->AddRef(This)
 #define IDWriteFactory_Release(This) (This)->lpVtbl->Release(This)
 #define IDWriteFactory_GetSystemFontCollection(This,fontCollection,checkForUpdates) (This)->lpVtbl->GetSystemFontCollection(This,fontCollection,checkForUpdates)
+#define IDWriteFactory_CreateCustomFontCollection(This, collectionLoader,collectionKey,collectionKeySize,fontCollection) (This)->lpVtbl->CreateCustomFontCollection(This,collectionLoader,collectionKey,collectionKeySize,fontCollection)
+#define IDWriteFactory_RegisterFontCollectionLoader(This,fontCollectionLoader) (This)->lpVtbl->RegisterFontCollectionLoader(This,fontCollectionLoader)
+#define IDWriteFactory_UnregisterFontCollectionLoader(This,fontCollectionLoader) (This)->lpVtbl->UnregisterFontCollectionLoader(This,fontCollectionLoader)
 #define IDWriteFactory_CreateTextFormat(This,fontFamilyName,fontCollection,fontWeight,fontStyle,fontStretch,fontSize,localeName,textFormat) (This)->lpVtbl->CreateTextFormat(This,fontFamilyName,fontCollection,fontWeight,fontStyle,fontStretch,fontSize,localeName,textFormat)
 #define IDWriteFactory_CreateTextLayout(This,string,stringLength,textFormat,maxWidth,maxHeight,textLayout) (This)->lpVtbl->CreateTextLayout(This,string,stringLength,textFormat,maxWidth,maxHeight,textLayout)
 #endif /*COBJMACROS*/

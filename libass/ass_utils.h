@@ -198,4 +198,9 @@ static inline unsigned fnv_32a_str(char *str, unsigned hval)
     return hval;
 }
 
+#if defined(WIN32) || defined(_MSC_VER)
+wchar_t* to_utf16(const char* str, size_t length);
+char* to_utf8(const wchar_t* str, size_t length);
+#endif
+
 #endif                          /* LIBASS_UTILS_H */

@@ -530,3 +530,53 @@ ASS_Style *lookup_style_strict(ASS_Track *track, char *name, size_t len)
     return NULL;
 }
 
+#if defined(WIN32) || defined(_MSC_VER)
+wchar_t* to_utf16(const char* str, size_t length)
+{
+  if (length == 0)
+    length = strlen(str);
+
+  int result = MultiByteToWideChar(CP_UTF8, 0, str, length, NULL, 0);
+  if (result == 0)
+    return NULL;
+
+  length = result + 1;
+  wchar_t* dirPath = malloc(length * 2);
+  result = MultiByteToWideChar(CP_UTF8, 0, str, result, dirPath, length);
+
+  if (result == 0)
+  {
+    free(dirPath);
+    return NULL;
+  }
+
+  if (dirPath[length - 1] != '\0')
+    dirPath[length - 1] = '\0';
+
+  return dirPath;
+}
+
+char* to_utf8(const wchar_t* str, size_t length)
+{
+  if (length == 0)
+    length = wcslen(str);
+
+  int result = WideCharToMultiByte(CP_UTF8, 0, str, length, NULL, 0, NULL, NULL);
+  if (result == 0)
+    return NULL;
+
+  int required = result + 1;
+  char *newStr = malloc(required);
+  result = WideCharToMultiByte(CP_UTF8, 0, str, length, newStr, required, NULL, NULL);
+  if (result == 0)
+  {
+    free(newStr);
+    return NULL;
+  }
+
+  if (newStr[required - 1] != '\0')
+    newStr[required - 1] = '\0';
+  
+  return newStr;
+}
+#endif
