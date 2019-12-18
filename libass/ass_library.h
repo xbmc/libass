@@ -39,5 +39,8 @@ struct ass_library {
 };
 
 char *read_file(struct ass_library *library, char *fname, size_t *bufsize);
+#ifndef HAVE_DIRENT_H
+char *read_fileW(struct ass_library *library, wchar_t *fname, unsigned long fileSize, size_t *bufSize);
+#endif
 
 #endif                          /* LIBASS_LIBRARY_H */

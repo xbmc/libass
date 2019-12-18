@@ -32,6 +32,10 @@ typedef struct font_info ASS_FontInfo;
 #include "ass.h"
 #include "ass_font.h"
 
+#if __cplusplus
+extern "C" {
+#endif
+
 typedef struct font_provider ASS_FontProvider;
 
 /* Font Provider */
@@ -273,4 +277,7 @@ ass_font_provider_add_font(ASS_FontProvider *provider,
  */
 void ass_font_provider_free(ASS_FontProvider *provider);
 
+#if __cplusplus
+}
+#endif
 #endif                          /* LIBASS_FONTSELECT_H */
