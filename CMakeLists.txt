@@ -23,6 +23,8 @@ add_library(libass
   libass/ass_func_template.h
   libass/ass_library.c
   libass/ass_library.h
+  libass/ass_outline.c
+  libass/ass_outline.h
   libass/ass_parse.c
   libass/ass_parse.h
   libass/ass_rasterizer.c

@@ -16,7 +16,9 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#if HAVE_CONFIG_H
 #include "config.h"
+#endif
 #include "ass_compat.h"
 
 #include "ass_utils.h"
@@ -518,7 +520,7 @@ static bool draw_arc(StrokerState *str, ASS_Vector pt,
                      ASS_DVector normal0, ASS_DVector normal1, double c, int dir)
 {
     const int max_subdiv = 15;
-    double mul[max_subdiv + 1];
+    double mul[16];
 
     ASS_DVector center;
     bool small_angle = true;
@@ -554,7 +556,7 @@ static bool draw_arc(StrokerState *str, ASS_Vector pt,
 static bool draw_circle(StrokerState *str, ASS_Vector pt, int dir)
 {
     const int max_subdiv = 15;
-    double mul[max_subdiv + 1], c = 0;
+    double mul[16], c = 0;
 
     int pos = max_subdiv;
     while (c < str->split_cos && pos) {
