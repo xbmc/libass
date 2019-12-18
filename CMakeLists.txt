@@ -1,6 +1,6 @@
-cmake_minimum_required(VERSION 3.2)
+cmake_minimum_required(VERSION 3.16)
 
-project(libass 0.14.0 LANGUAGES C CXX)
+project(libass VERSION 0.14.0 LANGUAGES C CXX)
 
   find_package(iconv REQUIRED NO_MODULE)
   find_package(freetype 2.6 REQUIRED NO_MODULE)
