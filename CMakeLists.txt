@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.16)
+cmake_minimum_required(VERSION 3.15)
 
 project(libass VERSION 0.14.0 LANGUAGES C CXX)
 
