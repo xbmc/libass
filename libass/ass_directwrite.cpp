@@ -91,7 +91,8 @@ interface LocalFontEnumerator : IDWriteFontFileEnumerator
             if (hFind == INVALID_HANDLE_VALUE)
             {
                 *hasCurrentFile = FALSE;
-                return E_INVALIDARG;
+                // Not finding a path for custom fonts is not an error
+                return S_OK;
             }
 
             while (ffd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)
