@@ -1,10 +1,11 @@
 cmake_minimum_required(VERSION 3.15)
 
-project(libass VERSION 0.14.0 LANGUAGES C)
+project(libass VERSION 0.15.0 LANGUAGES C)
 
   find_package(iconv REQUIRED NO_MODULE)
   find_package(freetype 2.6 REQUIRED NO_MODULE)
   find_package(fribidi REQUIRED NO_MODULE)
+  find_package(harfbuzz REQUIRED NO_MODULE)
 
 add_library(libass
   libass/ass_bitmap.c
@@ -50,6 +51,7 @@ target_link_libraries(libass
   freetype::freetype
   fribidi::fribidi
   iconv::iconv
+  harfbuzz::harfbuzz
 )
 target_compile_definitions(libass
   PRIVATE
@@ -72,10 +74,15 @@ if(WINDOWS_STORE)
     PRIVATE
       MS_APP
   )
+  target_compile_options(libass
+    PRIVATE
+      /sdl-
+  )
 endif()
 
 if(MSVC)
   target_sources(libass PRIVATE
+    libass/dwrite_c.h
     libass/ass_directwrite.h
     libass/ass_directwrite.c
   )

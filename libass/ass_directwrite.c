@@ -24,7 +24,6 @@
 
 #include <initguid.h>
 #include <ole2.h>
-#include <shobjidl.h>
 
 #include "dwrite_c.h"
 
@@ -1072,19 +1071,9 @@ ASS_FontProvider *ass_directwrite_add_provider(ASS_Library *lib,
     HRESULT hr = S_OK;
     IDWriteFactory *dwFactory = NULL;
     ASS_FontProvider *provider = NULL;
-    DWriteCreateFactoryFn DWriteCreateFactoryPtr = NULL;
     ProviderPrivate *priv = NULL;
 
-    HMODULE directwrite_lib = LoadLibraryW(L"Dwrite.dll");
-    if (!directwrite_lib)
-        goto cleanup;
-
-    DWriteCreateFactoryPtr = (DWriteCreateFactoryFn)GetProcAddress(directwrite_lib,
-                                                                   "DWriteCreateFactory");
-    if (!DWriteCreateFactoryPtr)
-        goto cleanup;
-
-    hr = DWriteCreateFactoryPtr(DWRITE_FACTORY_TYPE_SHARED,
+    hr = DWriteCreateFactory(DWRITE_FACTORY_TYPE_SHARED,
                                 &IID_IDWriteFactory,
                                 (IUnknown **) (&dwFactory));
     if (FAILED(hr) || !dwFactory) {
@@ -1099,7 +1088,6 @@ ASS_FontProvider *ass_directwrite_add_provider(ASS_Library *lib,
 
     priv->dirPath = lib->fonts_dir;
     priv->factory = dwFactory;
-    priv->directwrite_lib = directwrite_lib;
     priv->loader = init_LocalFontLoader();
     hr = IDWriteFactory_RegisterFontCollectionLoader(dwFactory, (IDWriteFontCollectionLoader*)priv->loader);
     if (FAILED(hr))
@@ -1133,8 +1121,6 @@ cleanup:
     }
     if (dwFactory)
         dwFactory->lpVtbl->Release(dwFactory);
-    if (directwrite_lib)
-        FreeLibrary(directwrite_lib);
 
     return NULL;
 }
