@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.15)
 
-project(libass VERSION 0.14.0 LANGUAGES C CXX)
+project(libass VERSION 0.14.0 LANGUAGES C)
 
   find_package(iconv REQUIRED NO_MODULE)
   find_package(freetype 2.6 REQUIRED NO_MODULE)
@@ -77,7 +77,7 @@ endif()
 if(MSVC)
   target_sources(libass PRIVATE
     libass/ass_directwrite.h
-    libass/ass_directwrite.cpp
+    libass/ass_directwrite.c
   )
   target_compile_definitions(libass PRIVATE
     CONFIG_DIRECTWRITE
@@ -86,7 +86,7 @@ if(MSVC)
 set(CMAKE_DEBUG_POSTFIX "d")
 endif()
 
-set(libass_VERSION 0.13.6)
+set(libass_VERSION ${PROJECT_VERSION})
 include(CMakePackageConfigHelpers)
 write_basic_package_version_file(
   ${CMAKE_CURRENT_BINARY_DIR}/libass-config-version.cmake

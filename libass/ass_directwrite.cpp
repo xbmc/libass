@@ -987,12 +987,13 @@ extern "C"
         return provider;
 
     cleanup:
-        if (priv->enumerator)
-            priv->enumerator->Release();
-        if (priv->loader)
-            priv->loader->Release();
-
-        free(priv);
+        if (priv) {
+            if (priv->enumerator)
+                priv->enumerator->Release();
+            if (priv->loader)
+                priv->loader->Release();
+            free(priv);
+        }
         if (dwFactory)
             dwFactory->Release();
 

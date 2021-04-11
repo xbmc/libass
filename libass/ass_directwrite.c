@@ -17,7 +17,9 @@
  */
 #define COBJMACROS
 
+#if HAVE_CONFIG_H
 #include "config.h"
+#endif
 #include "ass_compat.h"
 
 #include <initguid.h>
@@ -26,10 +28,11 @@
 
 #include "dwrite_c.h"
 
+#include "ass_library.h"
+#include "ass_types.h"
 #include "ass_directwrite.h"
 #include "ass_utils.h"
 
-#define NAME_MAX_LENGTH 256
 #define FALLBACK_DEFAULT_FONT L"Arial"
 
 static const ASS_FontMapping font_substitutions[] = {
@@ -47,10 +50,276 @@ typedef struct {
     IDWriteFontFileStream *stream;
 } FontPrivate;
 
+static void fileNameToPath(
+    wchar_t* dirPath,
+    size_t dirPathLength,
+    wchar_t* filePath,
+    size_t filePathLength,
+    wchar_t* filename
+    )
+{
+    if (dirPath[dirPathLength - 2] == '*')
+        dirPath[dirPathLength - 2] = '\0';
+
+    memset(filePath, 0, filePathLength * sizeof(wchar_t));
+    wcscpy_s(filePath, filePathLength, dirPath);
+    wcscat_s(filePath, filePathLength, filename);
+}
+
+typedef struct LocalFontEnumerator {
+    IDWriteFontFileEnumerator iface;
+    IDWriteFontFileEnumeratorVtbl vtbl;
+    LONG ref_count;
+    size_t dirPathLength;
+    wchar_t* dirPath;
+    size_t filePathLength;
+    wchar_t* filePath;
+    WIN32_FIND_DATAW ffd;
+    HANDLE hFind;
+    IDWriteFactory* factory;
+} LocalFontEnumerator;
+
+typedef struct LocalFontLoader {
+    IDWriteFontCollectionLoader iface;
+    IDWriteFontCollectionLoaderVtbl vtbl;
+    LONG ref_count;
+} LocalFontLoader;
+
 typedef struct {
     HMODULE directwrite_lib;
     IDWriteFactory *factory;
+    LocalFontLoader* loader;
+    LocalFontEnumerator* enumerator;
+    char* dirPath;
 } ProviderPrivate;
+
+
+static HRESULT STDMETHODCALLTYPE LocalFontEnumerator_MoveNext(
+    IDWriteFontFileEnumerator* This,
+    BOOL* hasCurrentFile
+    )
+{
+    LocalFontEnumerator* this = (LocalFontEnumerator*)This;
+
+    if (this->hFind == INVALID_HANDLE_VALUE)
+    {
+        this->hFind = FindFirstFileW(this->dirPath, &this->ffd);
+        if (this->hFind == INVALID_HANDLE_VALUE)
+        {
+            *hasCurrentFile = FALSE;
+            // Not finding a path for custom fonts is not an error
+            return S_OK;
+        }
+
+        while (this->ffd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)
+        {
+            BOOL result = FindNextFileW(this->hFind, &this->ffd);
+            if (result == FALSE)
+            {
+                FindClose(this->hFind);
+                this->hFind = INVALID_HANDLE_VALUE;
+                *hasCurrentFile = FALSE;
+                return S_OK;
+            }
+        }
+
+        fileNameToPath(this->dirPath, this->dirPathLength, this->filePath, this->filePathLength, this->ffd.cFileName);
+        *hasCurrentFile = TRUE;
+        return S_OK;
+    }
+
+    BOOL result = FindNextFileW(this->hFind, &this->ffd);
+    if (result == FALSE)
+    {
+        FindClose(this->hFind);
+        this->hFind = INVALID_HANDLE_VALUE;
+        *hasCurrentFile = FALSE;
+        return S_OK;
+    }
+
+    if (!(this->ffd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY))
+        fileNameToPath(this->dirPath, this->dirPathLength, this->filePath, this->filePathLength, this->ffd.cFileName);
+
+    *hasCurrentFile = TRUE;
+    return S_OK;
+}
+
+HRESULT __stdcall LocalFontEnumerator_GetCurrentFontFile(IDWriteFontFileEnumerator* This, IDWriteFontFile** fontFile)
+{
+    LocalFontEnumerator* this = (LocalFontEnumerator*)This;
+    return IDWriteFactory_CreateFontFileReference(this->factory, this->filePath, &this->ffd.ftLastWriteTime, fontFile);
+}
+
+
+static ULONG STDMETHODCALLTYPE LocalFontEnumerator_AddRef(
+    IDWriteFontFileEnumerator* This
+    )
+{
+    LocalFontEnumerator* this = (LocalFontEnumerator*)This;
+    return InterlockedIncrement(&this->ref_count);
+}
+
+static ULONG STDMETHODCALLTYPE LocalFontEnumerator_Release(
+    IDWriteFontFileEnumerator*This
+    )
+{
+    LocalFontEnumerator* this = (LocalFontEnumerator*)This;
+    unsigned long new_count = InterlockedDecrement(&this->ref_count);
+    if (new_count == 0) {
+        free(this->dirPath);
+        free(this->filePath);
+        IDWriteFactory_Release(this->factory);
+        free(this);
+        return 0;
+    }
+
+    return new_count;
+}
+
+static HRESULT STDMETHODCALLTYPE LocalFontEnumerator_QueryInterface(
+    IDWriteFontFileEnumerator *This,
+    REFIID riid,
+    void **ppvObject
+    )
+{
+    if (IsEqualGUID(riid, &IID_IDWriteFontFileEnumerator)
+        || IsEqualGUID(riid, &IID_IUnknown)) {
+        *ppvObject = This;
+    } else {
+        *ppvObject = NULL;
+        return E_FAIL;
+    }
+
+    This->lpVtbl->AddRef(This);
+    return S_OK;
+}
+
+static LocalFontEnumerator* init_LocalFontEnumerator(
+    IDWriteFactory* factory,
+    char* dir
+    )
+{
+    size_t len = strlen(dir);
+    if (len > 32000) //simple sanity checking, around max path length
+        return NULL;
+
+    LocalFontEnumerator* instance = malloc(sizeof(LocalFontEnumerator));
+    *instance = (LocalFontEnumerator){
+        .iface = {
+            .lpVtbl = &instance->vtbl,
+        },
+        .vtbl = {
+            LocalFontEnumerator_QueryInterface,
+            LocalFontEnumerator_AddRef,
+            LocalFontEnumerator_Release,
+            LocalFontEnumerator_MoveNext,
+            LocalFontEnumerator_GetCurrentFontFile,
+        },
+        .ref_count = 0,
+        .dirPathLength = 0,
+        .dirPath = NULL,
+        .filePathLength = 0,
+        .filePath = NULL,
+        .hFind = INVALID_HANDLE_VALUE,
+        .factory = factory,
+    };
+
+    IDWriteFactory_AddRef(factory);
+    LocalFontEnumerator_AddRef((IDWriteFontFileEnumerator*)instance);
+
+    instance->dirPathLength = len + 2; //add an extra for null and another for a * at the end
+
+    char* newDir = malloc(instance->dirPathLength);
+    if (!newDir)
+        return NULL;
+
+    strcpy_s(newDir, instance->dirPathLength, dir);
+    strcat_s(newDir, instance->dirPathLength, "*");
+
+    instance->dirPath = to_utf16(newDir, instance->dirPathLength);
+    free(newDir);
+    instance->filePathLength = 32000;
+    instance->filePath = malloc(instance->filePathLength * sizeof(wchar_t));
+
+    return instance;
+}
+
+static HRESULT STDMETHODCALLTYPE LocalFontLoader_CreateEnumeratorFromKey(
+    IDWriteFontCollectionLoader* This,
+    IDWriteFactory* factory,
+    void const* collectionKey,
+    UINT32 collectionKeySize,
+    IDWriteFontFileEnumerator** fontFileEnumerator
+    )
+{
+    ProviderPrivate* priv = (ProviderPrivate*)collectionKey;
+    priv->enumerator = init_LocalFontEnumerator(factory, priv->dirPath);
+    *fontFileEnumerator = (IDWriteFontFileEnumerator*)priv->enumerator;
+    return S_OK;
+}
+
+// IUnknown methods
+
+static ULONG STDMETHODCALLTYPE LocalFontLoader_AddRef(
+    IDWriteFontCollectionLoader*This
+    )
+{
+    LocalFontLoader* this = (LocalFontLoader*)This;
+    return InterlockedIncrement(&this->ref_count);
+}
+
+static ULONG STDMETHODCALLTYPE LocalFontLoader_Release(
+    IDWriteFontCollectionLoader*This
+    )
+{
+    LocalFontLoader* this = (LocalFontLoader*)This;
+    unsigned long new_count = InterlockedDecrement(&this->ref_count);
+    if (new_count == 0) {
+        free(this);
+        return 0;
+    }
+
+    return new_count;
+}
+
+static HRESULT STDMETHODCALLTYPE LocalFontLoader_QueryInterface(
+    IDWriteFontCollectionLoader *This,
+    REFIID riid,
+    void **ppvObject
+    )
+{
+    if (IsEqualGUID(riid, &IID_IDWriteFontCollectionLoader)
+        || IsEqualGUID(riid, &IID_IUnknown)) {
+        *ppvObject = This;
+    } else {
+        *ppvObject = NULL;
+        return E_FAIL;
+    }
+
+    This->lpVtbl->AddRef(This);
+    return S_OK;
+}
+
+static LocalFontLoader* init_LocalFontLoader()
+{
+    LocalFontLoader *instance = malloc(sizeof(LocalFontLoader));
+    if (!instance)
+        return NULL;
+
+    *instance = (LocalFontLoader){
+        .iface = {
+            .lpVtbl = &instance->vtbl,
+        },
+        .vtbl = {
+            LocalFontLoader_QueryInterface,
+            LocalFontLoader_AddRef,
+            LocalFontLoader_Release,
+            LocalFontLoader_CreateEnumeratorFromKey
+        }
+    };
+
+    return instance;
+}
 
 /**
  * Custom text renderer class for logging the fonts used. It does not
@@ -364,6 +633,27 @@ static unsigned get_font_index(void *data)
     return IDWriteFontFace_GetIndex(priv->face);
 }
 
+static HRESULT get_font_name(IDWriteLocalizedStrings* strings, UINT32 index, char** name)
+{
+    *name = NULL;
+    UINT32 length;
+    HRESULT hr = IDWriteLocalizedStrings_GetStringLength(strings, index, &length);
+    if (FAILED(hr)) {
+        return hr;
+    }
+    length++;
+    wchar_t* temp_name = malloc(length * sizeof(wchar_t));
+    hr = IDWriteLocalizedStrings_GetString(strings, 0, temp_name, length);
+    if (FAILED(hr)) {
+        free(temp_name);
+        return hr;
+    }
+
+    *name = to_utf8(temp_name, length);
+    free(temp_name);
+    return hr;
+}
+
 /*
  * Check if the passed font has a specific unicode character.
  */
@@ -435,9 +725,15 @@ static char *get_fallback(void *priv, const char *base, uint32_t codepoint)
 
     init_FallbackLogTextRenderer(&renderer, dw_factory);
 
-    hr = IDWriteFactory_CreateTextFormat(dw_factory, FALLBACK_DEFAULT_FONT, NULL,
+    wchar_t* requested_font = to_utf16(base, 0);
+
+    hr = IDWriteFactory_CreateTextFormat(dw_factory, requested_font ? requested_font : FALLBACK_DEFAULT_FONT,
+            NULL,
             DWRITE_FONT_WEIGHT_MEDIUM, DWRITE_FONT_STYLE_NORMAL,
             DWRITE_FONT_STRETCH_NORMAL, 1.0f, L"", &text_format);
+    if (requested_font)
+        free(requested_font);
+
     if (FAILED(hr)) {
         return NULL;
     }
@@ -460,6 +756,7 @@ static char *get_fallback(void *priv, const char *base, uint32_t codepoint)
     IDWriteFont *font = NULL;
     hr = IDWriteTextLayout_Draw(text_layout, &font, &renderer.iface, 0.0f, 0.0f);
     if (FAILED(hr) || font == NULL) {
+        FallbackLogTextRenderer_Release((IDWriteTextRenderer *)&renderer);
         IDWriteTextLayout_Release(text_layout);
         IDWriteTextFormat_Release(text_format);
         return NULL;
@@ -480,14 +777,13 @@ static char *get_fallback(void *priv, const char *base, uint32_t codepoint)
         return NULL;
     }
 
-    wchar_t temp_name[NAME_MAX_LENGTH];
-    hr = IDWriteLocalizedStrings_GetString(familyNames, 0, temp_name, NAME_MAX_LENGTH);
+    char* family = NULL;
+    hr = get_font_name(familyNames, 0, &family);
     if (FAILED(hr)) {
         IDWriteLocalizedStrings_Release(familyNames);
         IDWriteFont_Release(font);
         return NULL;
     }
-    temp_name[NAME_MAX_LENGTH-1] = 0;
 
     // DirectWrite may not have found a valid fallback, so check that
     // the selected font actually has the requested glyph.
@@ -496,13 +792,10 @@ static char *get_fallback(void *priv, const char *base, uint32_t codepoint)
         if (FAILED(hr) || !exists) {
             IDWriteLocalizedStrings_Release(familyNames);
             IDWriteFont_Release(font);
+            free(family);
             return NULL;
         }
     }
-
-    int size_needed = WideCharToMultiByte(CP_UTF8, 0, temp_name, -1, NULL, 0,NULL, NULL);
-    char *family = (char *) malloc(size_needed);
-    WideCharToMultiByte(CP_UTF8, 0, temp_name, -1, family, size_needed, NULL, NULL);
 
     IDWriteLocalizedStrings_Release(familyNames);
     IDWriteFont_Release(font);
@@ -526,12 +819,58 @@ static int map_width(enum DWRITE_FONT_STRETCH stretch)
     }
 }
 
+static char* get_font_path(
+    IDWriteFont* font
+    )
+{
+    IDWriteFontFace* fontFace;
+    HRESULT hr = IDWriteFont_CreateFontFace(font, &fontFace);
+    if (FAILED(hr))
+        return NULL;
+
+    IDWriteFontFile* fontFiles[1];
+    UINT32 files = 1;
+    hr = IDWriteFontFace_GetFiles(fontFace, &files, fontFiles);
+    if (FAILED(hr))
+    {
+        IDWriteFontFace_Release(fontFace);
+        return NULL;
+    }
+
+    const wchar_t* refKey = NULL;
+    hr = IDWriteFontFile_GetReferenceKey(fontFiles[0], &refKey, &files);
+    if (FAILED(hr))
+    {
+        IDWriteFontFace_Release(fontFace);
+        for (int i = 0; i < files; ++i) {
+            IDWriteFontFile_Release(fontFiles[i]);
+        }
+        return NULL;
+    }
+
+    // This must be before we release the reference because the key is
+    // only guaranteed to be valid until release
+    char* path = NULL;
+    wchar_t *start = wcschr(refKey, L':');
+    if (start)
+    {
+        ptrdiff_t diff = start - refKey - 1;
+        size_t length = files / 2 - diff;
+        path = to_utf8(start - 1, length);
+    }
+
+    IDWriteFontFace_Release(fontFace);
+    IDWriteFontFile_Release(fontFiles[0]);
+
+    return path;
+}
+
 static void add_font(IDWriteFont *font, IDWriteFontFamily *fontFamily,
                      ASS_FontProvider *provider)
 {
     HRESULT hr;
     BOOL exists;
-    wchar_t temp_name[NAME_MAX_LENGTH];
+    char* font_name = NULL;
     int size_needed;
     ASS_FontProviderMetaData meta = {0};
 
@@ -550,21 +889,17 @@ static void add_font(IDWriteFont *font, IDWriteFontFamily *fontFamily,
         goto cleanup;
 
     if (exists) {
-        hr = IDWriteLocalizedStrings_GetString(psNames, 0, temp_name, NAME_MAX_LENGTH);
+        hr = get_font_name(psNames, 0, &font_name);
         if (FAILED(hr)) {
             IDWriteLocalizedStrings_Release(psNames);
             goto cleanup;
         }
 
-        temp_name[NAME_MAX_LENGTH-1] = 0;
-        size_needed = WideCharToMultiByte(CP_UTF8, 0, temp_name, -1, NULL, 0, NULL, NULL);
-        char *mbName = (char *) malloc(size_needed);
-        if (!mbName) {
+        if (!font_name) {
             IDWriteLocalizedStrings_Release(psNames);
             goto cleanup;
         }
-        WideCharToMultiByte(CP_UTF8, 0, temp_name, -1, mbName, size_needed, NULL, NULL);
-        meta.postscript_name = mbName;
+        meta.postscript_name = font_name;
 
         IDWriteLocalizedStrings_Release(psNames);
     }
@@ -583,23 +918,16 @@ static void add_font(IDWriteFont *font, IDWriteFontFamily *fontFamily,
             goto cleanup;
         }
         for (int k = 0; k < meta.n_fullname; k++) {
-            hr = IDWriteLocalizedStrings_GetString(fontNames, k,
-                                                   temp_name,
-                                                   NAME_MAX_LENGTH);
+            hr = get_font_name(fontNames, k, &(meta.fullnames[k]));
             if (FAILED(hr)) {
                 IDWriteLocalizedStrings_Release(fontNames);
                 goto cleanup;
             }
 
-            temp_name[NAME_MAX_LENGTH-1] = 0;
-            size_needed = WideCharToMultiByte(CP_UTF8, 0, temp_name, -1, NULL, 0, NULL, NULL);
-            char *mbName = (char *) malloc(size_needed);
-            if (!mbName) {
+            if (!meta.fullnames[k]) {
                 IDWriteLocalizedStrings_Release(fontNames);
                 goto cleanup;
             }
-            WideCharToMultiByte(CP_UTF8, 0, temp_name, -1, mbName, size_needed, NULL, NULL);
-            meta.fullnames[k] = mbName;
         }
         IDWriteLocalizedStrings_Release(fontNames);
     }
@@ -619,33 +947,27 @@ static void add_font(IDWriteFont *font, IDWriteFontFamily *fontFamily,
         goto cleanup;
     }
     for (int k = 0; k < meta.n_family; k++) {
-        hr = IDWriteLocalizedStrings_GetString(familyNames, k,
-                                               temp_name,
-                                               NAME_MAX_LENGTH);
+        hr = get_font_name(familyNames, k, &(meta.families[k]));
         if (FAILED(hr)) {
             IDWriteLocalizedStrings_Release(familyNames);
             goto cleanup;
         }
 
-        temp_name[NAME_MAX_LENGTH-1] = 0;
-        size_needed = WideCharToMultiByte(CP_UTF8, 0, temp_name, -1, NULL, 0, NULL, NULL);
-        char *mbName = (char *) malloc(size_needed);
-        if (!mbName) {
+        if (!meta.families[k]) {
             IDWriteLocalizedStrings_Release(familyNames);
             goto cleanup;
         }
-        WideCharToMultiByte(CP_UTF8, 0, temp_name, -1, mbName, size_needed, NULL, NULL);
-        meta.families[k] = mbName;
     }
     IDWriteLocalizedStrings_Release(familyNames);
 
+    char *path = get_font_path(font);
     FontPrivate *font_priv = (FontPrivate *) calloc(1, sizeof(*font_priv));
     if (!font_priv)
         goto cleanup;
     font_priv->font = font;
     font = NULL;
 
-    ass_font_provider_add_font(provider, &meta, NULL, 0, font_priv);
+    ass_font_provider_add_font(provider, &meta, path, 0, font_priv);
 
 cleanup:
     if (meta.families) {
@@ -672,15 +994,11 @@ cleanup:
  * for later memory reading
  */
 static void scan_fonts(IDWriteFactory *factory,
+                       IDWriteFontCollection *fontCollection,
                        ASS_FontProvider *provider)
 {
     HRESULT hr = S_OK;
-    IDWriteFontCollection *fontCollection = NULL;
     IDWriteFont *font = NULL;
-    hr = IDWriteFactory_GetSystemFontCollection(factory, &fontCollection, FALSE);
-
-    if (FAILED(hr) || !fontCollection)
-        return;
 
     UINT32 familyCount = IDWriteFontCollection_GetFontFamilyCount(fontCollection);
 
@@ -779,18 +1097,40 @@ ASS_FontProvider *ass_directwrite_add_provider(ASS_Library *lib,
     if (!priv)
         goto cleanup;
 
-    priv->directwrite_lib = directwrite_lib;
+    priv->dirPath = lib->fonts_dir;
     priv->factory = dwFactory;
+    priv->directwrite_lib = directwrite_lib;
+    priv->loader = init_LocalFontLoader();
+    hr = IDWriteFactory_RegisterFontCollectionLoader(dwFactory, (IDWriteFontCollectionLoader*)priv->loader);
+    if (FAILED(hr))
+        goto cleanup;
+
+    IDWriteFontCollection* collection;
+    hr = IDWriteFactory_CreateCustomFontCollection(dwFactory, (IDWriteFontCollectionLoader*)priv->loader, priv, sizeof(ProviderPrivate), &collection);
+    if (FAILED(hr))
+        goto cleanup;
+
     provider = ass_font_provider_new(selector, &directwrite_callbacks, priv);
     if (!provider)
         goto cleanup;
 
-    scan_fonts(dwFactory, provider);
+    IDWriteFontCollection* systemCollection;
+    hr = IDWriteFactory_GetSystemFontCollection(dwFactory, &systemCollection, FALSE);
+    if (FAILED(hr))
+        goto cleanup;
+
+    scan_fonts(dwFactory, systemCollection, provider);
+    scan_fonts(dwFactory, collection, provider);
     return provider;
 
 cleanup:
-
-    free(priv);
+    if (priv) {
+        if (priv->loader)
+            LocalFontLoader_Release((IDWriteFontCollectionLoader*)priv->loader);
+        if (priv->enumerator)
+            LocalFontEnumerator_Release((IDWriteFontFileEnumerator*)priv->enumerator);
+        free(priv);
+    }
     if (dwFactory)
         dwFactory->lpVtbl->Release(dwFactory);
     if (directwrite_lib)
