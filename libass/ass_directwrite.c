@@ -57,7 +57,7 @@ static ASS_SharedHDC *hdc_retain(ASS_SharedHDC *shared_hdc)
 
 static void hdc_release(ASS_SharedHDC *shared_hdc)
 {
-    if (!--shared_hdc->ref_count) {
+    if (shared_hdc && !--shared_hdc->ref_count) {
         DeleteDC(shared_hdc->hdc);
         free(shared_hdc);
     }
