@@ -1099,7 +1099,7 @@ ass_fontselect_init(ASS_Library *library, FT_Library ftlibrary, size_t *num_emfo
                     const char *family, const char *path, const char *config,
                     ASS_DefaultFontProvider dfp)
 {
-    ASS_FontSelector *priv = calloc(1, sizeof(ASS_FontSelector));
+    ASS_FontSelector* priv = (ASS_FontSelector*)calloc(1, sizeof(ASS_FontSelector));
     if (priv == NULL)
         return NULL;
 

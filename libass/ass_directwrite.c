@@ -1237,7 +1237,7 @@ static void match_fonts(void *priv, ASS_Library *lib,
 #if ASS_WINAPI_DESKTOP
     struct font_enum_priv enum_priv;
 
-    enum_priv.shared_hdc = calloc(1, sizeof(ASS_SharedHDC));
+    enum_priv.shared_hdc = (ASS_SharedHDC*)calloc(1, sizeof(ASS_SharedHDC));
     if (!enum_priv.shared_hdc)
         return;
 

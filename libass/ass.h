@@ -706,8 +706,7 @@ ASS_EXTERN int ass_read_styles(ASS_Track *track, char *fname, char *codepage);
  * \param data binary font data
  * \param data_size data size
 */
-ASS_EXTERN void ass_add_font(ASS_Library *library, const char *name, const char *data,
-                             int data_size);
+ASS_EXTERN void ass_add_font(ASS_Library *priv, const char *name, const char *data, int size);
 
 /**
  * \brief Remove all fonts stored in an ass_library object.
