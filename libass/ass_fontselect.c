@@ -173,6 +173,7 @@ static ASS_FontProviderFuncs ft_funcs = {
     .destroy_font      = destroy_font_ft,
 };
 
+#if HAVE_DIRENT_H
 static void load_fonts_from_dir(ASS_Library *library, const char *dir)
 {
     DIR *d = opendir(dir);
@@ -209,6 +210,91 @@ static void load_fonts_from_dir(ASS_Library *library, const char *dir)
     free(namebuf);
     closedir(d);
 }
+#else
+
+static void load_fonts_from_dir(ASS_Library* library, const char* dir)
+{
+    int len = strlen(dir);
+    int newLen = len + 1; //add an extra for null
+    int searchLen = newLen + 1; //add an extra for "*"
+    if (len > 32000) //simple sanity checking, around max path length
+        return;
+    char* newDir;
+    char* newDirSearch;
+
+    if (!(dir[0] == '\\' && dir[1] == '\\' && dir[2] == '?' && dir[3] == '\\'))
+    {
+        searchLen += 4;
+        newDirSearch = malloc(searchLen);
+        strcpy_s(newDirSearch, searchLen, "\\\\?\\");
+        strcat_s(newDirSearch, searchLen, dir);
+
+        newDir = malloc(newLen);
+        strcpy_s(newDir, newLen, dir);
+    }
+    else
+    {
+        newDirSearch = malloc(searchLen);
+        strcpy_s(newDirSearch, searchLen, dir);
+
+        newLen -= 4;
+        newDir = malloc(newLen);
+        strncpy(newDir, dir + 4, len - 4);
+        newDir[newLen] = '\0';
+    }
+
+    strcat_s(newDirSearch, searchLen, "*");
+
+    wchar_t* dirPath = to_utf16(newDir);
+    wchar_t* dirPathSearch = to_utf16(newDirSearch);
+
+    free(newDir);
+    free(newDirSearch);
+
+    if (!dirPath || !dirPathSearch)
+        return;
+
+    WIN32_FIND_DATAW ffd;
+    HANDLE hFind;
+
+    hFind = FindFirstFileW(dirPathSearch, &ffd);
+    if (hFind == INVALID_HANDLE_VALUE)
+    {
+        free(dirPath);
+        free(dirPathSearch);
+        return;
+    }
+
+    do
+    {
+        if (!(ffd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY))
+        {
+            wchar_t buf[4000];
+            wcscpy_s(buf, 4000, dirPath);
+            wcscat_s(buf, 4000, ffd.cFileName);
+            size_t bufSize;
+            // We assume file size is less than 4GB, otherwise we're in trouble anyway
+            char* data = read_fileW(library, buf, ffd.nFileSizeLow, &bufSize);
+            if (data)
+            {
+                char* name = to_utf8(ffd.cFileName);
+                if (name)
+                {
+                    ass_msg(library, MSGL_INFO, "Loading font file '%s'", name);
+                    ass_add_font(library, name, data, bufSize);
+                    free(name);
+                }
+                free(data);
+            }
+        }
+    } while (FindNextFileW(hFind, &ffd) != 0);
+    FindClose(hFind);
+
+    free(dirPath);
+    free(dirPathSearch);
+}
+
+#endif
 
 /**
  * \brief Create a bare font provider.
