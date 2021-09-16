@@ -1032,11 +1032,15 @@ ass_embedded_fonts_add_provider(ASS_FontSelector *selector, size_t *num_emfonts)
         return NULL;
 
     ASS_Library *lib = selector->library;
-
+#if !defined(CONFIG_DIRECTWRITE)
+    // If a font provider has implemented the feature to load the fonts from a custom folder,
+    // then we do not have to load fonts from fonts_dir path also here or they will be loaded twice.
+    // WARNING: load_fonts_from_dir method will load all fonts in RAM,
+    // too many fonts could cause slow down and system crashes.
     if (lib->fonts_dir && lib->fonts_dir[0]) {
         load_fonts_from_dir(lib, lib->fonts_dir);
     }
-
+#endif
     for (size_t i = 0; i < lib->num_fontdata; i++)
         process_fontdata(priv, i);
     *num_emfonts = lib->num_fontdata;
