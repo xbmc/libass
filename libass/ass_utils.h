@@ -46,6 +46,9 @@
 #define FFMIN(a,b) ((a) > (b) ? (b) : (a))
 #define FFMINMAX(c,a,b) FFMIN(FFMAX(c, a), b)
 
+#if __cplusplus
+extern "C" {
+#endif
 #define ASS_PI 3.14159265358979323846
 
 #if (defined(__i386__) || defined(__x86_64__)) && CONFIG_ASM
@@ -203,6 +206,10 @@ static inline uint32_t fnv_32a_buf(const void *buf, size_t len, uint32_t hval)
 
     return hval;
 }
+
+#if __cplusplus
+}
+#endif
 
 static inline int mystrtoi(char **p, int *res)
 {

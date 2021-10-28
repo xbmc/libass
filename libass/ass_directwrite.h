@@ -29,8 +29,15 @@
 #define ASS_WINAPI_DESKTOP 1
 #endif
 
+#if __cplusplus
+extern "C" {
+#endif
+
 ASS_FontProvider *
 ass_directwrite_add_provider(ASS_Library *lib, ASS_FontSelector *selector,
                              const char *config, FT_Library ftlib);
+#if __cplusplus
+}
+#endif
 
 #endif
