@@ -33,6 +33,10 @@ typedef struct ass_font_stream ASS_FontStream;
 #include "ass.h"
 #include "ass_font.h"
 
+#if __cplusplus
+extern "C" {
+#endif
+
 typedef struct font_provider ASS_FontProvider;
 
 /* Font Provider */
@@ -294,4 +298,7 @@ void ass_font_provider_free(ASS_FontProvider *provider);
  */
 size_t ass_update_embedded_fonts(ASS_FontSelector *selector, size_t num_loaded);
 
+#if __cplusplus
+}
+#endif
 #endif                          /* LIBASS_FONTSELECT_H */

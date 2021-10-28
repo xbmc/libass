@@ -37,3 +37,4 @@ Makefile.in
 /ltmain.sh
 /missing
 /m4
+build*/
