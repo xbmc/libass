@@ -30,6 +30,10 @@
 #include <sys/stat.h>
 #include <inttypes.h>
 
+#ifndef HAVE_DIRENT_H
+#include <windows.h>
+#endif
+
 #ifdef CONFIG_ICONV
 #include <iconv.h>
 #endif
@@ -1281,6 +1285,46 @@ char *read_file(ASS_Library *library, char *fname, size_t *bufsize)
         *bufsize = sz;
     return buf;
 }
+
+#ifndef HAVE_DIRENT_H
+/**
+ * \brief read file contents into newly allocated buffer
+ * \param fname file path
+ * \param fileSize file size (if set as 0 will be automatically determined)
+ * \param bufsize out: file buffer size
+ * \return pointer to file contents. Caller is responsible for its deallocation.
+ */
+char* read_fileW(ASS_Library* library, wchar_t* fname, DWORD fileSize, size_t* bufsize)
+{
+#ifdef MS_APP
+    HANDLE hFile = CreateFile2(fname, GENERIC_READ, FILE_SHARE_READ, OPEN_EXISTING, NULL);
+#else
+    HANDLE hFile = CreateFileW(fname, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING,
+                               FILE_ATTRIBUTE_NORMAL, NULL);
+#endif
+
+    if (hFile == INVALID_HANDLE_VALUE)
+        return NULL;
+
+    if (fileSize == 0) {
+        LARGE_INTEGER size;
+        GetFileSizeEx(hFile, &size);
+        fileSize = size.LowPart;
+    }
+
+    char* buf = (char*)malloc(fileSize); //room for null
+    if (TRUE != ReadFile(hFile, (void*)buf, fileSize, 0, NULL))
+    {
+        free(buf);
+        ass_msg(library, MSGL_INFO, "Read failed for some reason");
+        CloseHandle(hFile);
+        return NULL;
+    }
+    CloseHandle(hFile);
+    *bufsize = fileSize;
+    return buf;
+}
+#endif
 
 /*
  * \param buf pointer to subtitle text in utf-8

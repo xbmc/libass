@@ -207,6 +207,10 @@ static inline uint32_t fnv_32a_buf(const void *buf, size_t len, uint32_t hval)
     return hval;
 }
 
+#if defined(WIN32) || defined(_MSC_VER)
+wchar_t* to_utf16(const char* str);
+char* to_utf8(const wchar_t* str);
+#endif
 #if __cplusplus
 }
 #endif

@@ -136,11 +136,22 @@ FT_Face ass_face_open(ASS_Library *lib, FT_Library ftlib, const char *path,
                       const char *postscript_name, int index)
 {
     FT_Face face;
-    int error = FT_New_Face(ftlib, path, index, &face);
+    // On Windows (Direct Write) FT_New_Face currently do not support unicode chars
+    // The easy way to fix is to load the file data with system file handler
+    // and pass the data to FT_New_Memory_Face
+    char* data;
+    size_t bufSize;
+#if defined(WIN32) && !defined(HAVE_DIRENT_H)
+    data = read_fileW(lib, to_utf16(path), 0, &bufSize);
+#else
+    data = read_file(lib, path, &bufSize);
+#endif
+    int error = FT_New_Memory_Face(ftlib, (unsigned char*)data, bufSize, index, &face);
+    //int error = FT_New_Face(ftlib, path, index, &face);
     if (error) {
-        ass_msg(lib, MSGL_WARN, "Error opening font: '%s', %d", path, index);
+        ass_msg(lib, MSGL_WARN, "Error opening memory font '%s', %d", path, index);
         return NULL;
-    }
+	}
 
     if (postscript_name && index < 0 && face->num_faces > 0) {
         // The font provider gave us a postscript name and is not sure
@@ -148,9 +159,18 @@ FT_Face ass_face_open(ASS_Library *lib, FT_Library ftlib, const char *path,
         // correct face_index in the collection!
         for (int i = 0; i < face->num_faces; i++) {
             FT_Done_Face(face);
-            error = FT_New_Face(ftlib, path, i, &face);
+
+            data = NULL;
+            bufSize = 0;
+#if defined(WIN32) && !defined(HAVE_DIRENT_H)
+            data = read_fileW(lib, to_utf16(path), 0, &bufSize);
+#else
+            data = read_file(lib, path, &bufSize);
+#endif
+            int error = FT_New_Memory_Face(ftlib, (unsigned char*)data, bufSize, i, &face);
+            //error = FT_New_Face(ftlib, path, i, &face);
             if (error) {
-                ass_msg(lib, MSGL_WARN, "Error opening font: '%s', %d", path, i);
+                ass_msg(lib, MSGL_WARN, "Error opening memory font: '%s', %d", path, i);
                 return NULL;
             }
 

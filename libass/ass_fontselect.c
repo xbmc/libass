@@ -33,7 +33,12 @@
 #include <limits.h>
 #include <ft2build.h>
 #include <sys/types.h>
+#if HAVE_DIRENT_H
 #include <dirent.h>
+#else
+#define WIN32_LEAN_AND_MEAN 1
+#include <windows.h>
+#endif
 #include FT_FREETYPE_H
 #include FT_SFNT_NAMES_H
 #include FT_TRUETYPE_IDS_H
