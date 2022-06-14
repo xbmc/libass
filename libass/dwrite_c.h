@@ -33,6 +33,8 @@ typedef struct IDWritePixelSnapping IDWritePixelSnapping;
 typedef struct IDWriteTextFormat IDWriteTextFormat;
 typedef struct IDWriteTextLayout IDWriteTextLayout;
 typedef struct IDWriteTextRenderer IDWriteTextRenderer;
+typedef struct IDWriteFontFileEnumerator IDWriteFontFileEnumerator;
+typedef struct IDWriteFontCollectionLoader IDWriteFontCollectionLoader;
 typedef struct IDWriteGdiInterop IDWriteGdiInterop;
 
 #include <dcommon.h>
@@ -185,6 +187,58 @@ typedef struct DWRITE_UNDERLINE DWRITE_UNDERLINE;
 #endif
 #endif
 
+#undef INTERFACE
+#define INTERFACE IDWriteFontFileEnumerator
+DECLARE_INTERFACE_(IDWriteFontFileEnumerator,IUnknown)
+{
+    BEGIN_INTERFACE
+
+#ifndef __cplusplus
+    /* IUnknown methods */
+    STDMETHOD(QueryInterface)(THIS_ REFIID riid, void **ppvObject) PURE;
+    STDMETHOD_(ULONG, AddRef)(THIS) PURE;
+    STDMETHOD_(ULONG, Release)(THIS) PURE;
+#endif
+    STDMETHOD(MoveNext)(THIS, BOOL* hasCurrentFile) PURE;
+
+    STDMETHOD(GetCurrentFontFile)(THIS, IDWriteFontFile** fontFile) PURE;
+
+    END_INTERFACE
+};
+#ifdef COBJMACROS
+#define IDWriteFontFileEnumerator_QueryInterface(This,riid,ppvObject) (This)->lpVtbl->QueryInterface(This,riid,ppvObject)
+#define IDwriteFontFileEnumerator_AddRef(This) (This)->lpVtbl->AddRef(This)
+#define IDWriteFontFileEnumerator_Release(This) (This)->lpVtbl->Release(This)
+#define IDWriteFontFileEnumerator_MoveNext(This) (This)->lpVtbl->MoveNext(This, hasCurrentFile)
+#define IDWriteFontFileEnumerator_GetCurrentFontFile(This) (This)->lpVtbl->GetCurrentFontFile(This, fontFile)
+#endif /*COBJMACROS*/
+
+#undef INTERFACE
+#define INTERFACE IDWriteFontCollectionLoader 
+DECLARE_INTERFACE_(IDWriteFontCollectionLoader, IUnknown)
+{
+    BEGIN_INTERFACE
+#ifndef __cplusplus
+    /* IUnknown methods */
+    STDMETHOD(QueryInterface)(THIS_ REFIID riid, void **ppvObject) PURE;
+    STDMETHOD_(ULONG, AddRef)(THIS) PURE;
+    STDMETHOD_(ULONG, Release)(THIS) PURE;
+#endif
+    STDMETHOD(CreateEnumeratorFromKey)(THIS_
+        IDWriteFactory* factory,
+        void const* collectionKey,
+        UINT32 collectionKeySize,
+        IDWriteFontFileEnumerator** fontFileEnumerator) PURE;
+
+    END_INTERFACE
+};
+#ifdef COBJMACROS
+#define IDWriteFontCollectionLoader_QueryInterface(This,riid,ppvObject) (This)->lpVtbl->QueryInterface(This,riid,ppvObject)
+#define IDWriteFontCollectionLoader_AddRef(This) (This)->lpVtbl->AddRef(This)
+#define IDWriteFontCollectionLoader_Release(This) (This)->lpVtbl->Release(This)
+#define IDWriteFontCollectionLoader_CreateEnumeratorFromKey(This) (This)->lpVtbl->CreateEnumeratorFromKey(This, factor, collectionKey, collectionKeySize, fontFileEnumerator)
+#endif /*COBJMACROS*/
+
 #undef  INTERFACE
 #define INTERFACE IDWriteFactory
 DECLARE_INTERFACE_(IDWriteFactory,IUnknown)
@@ -203,10 +257,23 @@ DECLARE_INTERFACE_(IDWriteFactory,IUnknown)
         IDWriteFontCollection **fontCollection,
         BOOL checkForUpdates __MINGW_DEF_ARG_VAL(FALSE)) PURE;
 
-    STDMETHOD(dummy1)(THIS);
-    STDMETHOD(dummy2)(THIS);
-    STDMETHOD(dummy3)(THIS);
-    STDMETHOD(dummy4)(THIS);
+    STDMETHOD(CreateCustomFontCollection)(THIS_
+        IDWriteFontCollectionLoader* collectionLoader,
+        void const* collectionKey,
+        UINT32 collectionKeySize,
+        IDWriteFontCollection** fontCollection) PURE;
+
+    STDMETHOD(RegisterFontCollectionLoader)(THIS_
+        IDWriteFontCollectionLoader *fontCollectionLoader) PURE;
+
+    STDMETHOD(UnregisterFontCollectionLoader)(THIS_
+        IDWriteFontCollectionLoader *fontCollectionLoader) PURE;
+
+    STDMETHOD(CreateFontFileReference)(THIS_
+        _In_z_ WCHAR const* filePath,
+        _In_opt_ FILETIME const* lastWriteTime,
+        _COM_Outptr_ IDWriteFontFile** fontFile) PURE;
+
     STDMETHOD(dummy5)(THIS);
     STDMETHOD(dummy6)(THIS);
     STDMETHOD(dummy7)(THIS);
@@ -246,8 +313,12 @@ DECLARE_INTERFACE_(IDWriteFactory,IUnknown)
 #define IDWriteFactory_AddRef(This) (This)->lpVtbl->AddRef(This)
 #define IDWriteFactory_Release(This) (This)->lpVtbl->Release(This)
 #define IDWriteFactory_GetSystemFontCollection(This,fontCollection,checkForUpdates) (This)->lpVtbl->GetSystemFontCollection(This,fontCollection,checkForUpdates)
+#define IDWriteFactory_CreateCustomFontCollection(This, collectionLoader,collectionKey,collectionKeySize,fontCollection) (This)->lpVtbl->CreateCustomFontCollection(This,collectionLoader,collectionKey,collectionKeySize,fontCollection)
+#define IDWriteFactory_RegisterFontCollectionLoader(This,fontCollectionLoader) (This)->lpVtbl->RegisterFontCollectionLoader(This,fontCollectionLoader)
+#define IDWriteFactory_UnregisterFontCollectionLoader(This,fontCollectionLoader) (This)->lpVtbl->UnregisterFontCollectionLoader(This,fontCollectionLoader)
 #define IDWriteFactory_CreateTextFormat(This,fontFamilyName,fontCollection,fontWeight,fontStyle,fontStretch,fontSize,localeName,textFormat) (This)->lpVtbl->CreateTextFormat(This,fontFamilyName,fontCollection,fontWeight,fontStyle,fontStretch,fontSize,localeName,textFormat)
 #define IDWriteFactory_CreateTextLayout(This,string,stringLength,textFormat,maxWidth,maxHeight,textLayout) (This)->lpVtbl->CreateTextLayout(This,string,stringLength,textFormat,maxWidth,maxHeight,textLayout)
+#define IDWriteFactory_CreateFontFileReference(This,filePath,lastWriteTime,fontFile) (This)->lpVtbl->CreateFontFileReference(This,filePath,lastWriteTime,fontFile)
 #define IDWriteFactory_GetGdiInterop(This,gdiInterop) (This)->lpVtbl->GetGdiInterop(This,gdiInterop)
 #endif /*COBJMACROS*/
 
@@ -828,9 +899,19 @@ DECLARE_INTERFACE_(IDWriteLocalizedStrings,IUnknown)
     /* IDWriteLocalizedStrings methods */
     STDMETHOD_(UINT32, GetCount)(THIS) PURE;
 
-    STDMETHOD(dummy1)(THIS);
-    STDMETHOD(dummy2)(THIS);
-    STDMETHOD(dummy3)(THIS);
+    STDMETHOD(FindLocaleName)(THIS_
+        _In_z_ WCHAR const* localeName,
+        _Out_ UINT32* index,
+        _Out_ BOOL* exists) PURE;
+
+    STDMETHOD(GetLocaleNameLength)(THIS_
+        UINT32 index,
+        _Out_ UINT32* length) PURE;
+
+    STDMETHOD(GetLocaleName)(THIS_
+        UINT32 index,
+        _Out_writes_z_(size) WCHAR* localeName,
+        UINT32 size) PURE;
 
     STDMETHOD(GetStringLength)(THIS_
         UINT32 index,
@@ -847,6 +928,7 @@ DECLARE_INTERFACE_(IDWriteLocalizedStrings,IUnknown)
 #define IDWriteLocalizedStrings_GetCount(This) (This)->lpVtbl->GetCount(This)
 #define IDWriteLocalizedStrings_GetStringLength(This,index,length) (This)->lpVtbl->GetStringLength(This,index,length)
 #define IDWriteLocalizedStrings_GetString(This,index,stringBuffer,size) (This)->lpVtbl->GetString(This,index,stringBuffer,size)
+#define IDWriteLocalizedStrings_GetStringLength(This,index,size) (This)->lpVtbl->GetStringLength(This,index,size)
 #endif /*COBJMACROS*/
 
 #undef  INTERFACE
@@ -1011,6 +1093,12 @@ DECLARE_INTERFACE_(IDWriteTextRenderer,IDWritePixelSnapping)
     END_INTERFACE
 };
 
+EXTERN_C HRESULT __declspec(dllimport) __stdcall DWriteCreateFactory(
+    _In_ DWRITE_FACTORY_TYPE factoryType,
+    _In_ REFIID iid,
+    _COM_Outptr_ IUnknown** factory
+);
+
 #undef  INTERFACE
 #define INTERFACE IDWriteGdiInterop
 DECLARE_INTERFACE_(IDWriteGdiInterop,IUnknown)
@@ -1050,5 +1138,8 @@ DEFINE_GUID(IID_IDWriteFactory3, 0x9a1b41c3,0xd3bb,0x466a,0x87,0xfc,0xfe,0x67,0x
 DEFINE_GUID(IID_IDWriteFontFace3, 0xd37d7598,0x09be,0x4222,0xa2,0x36,0x20,0x81,0x34,0x1c,0xc1,0xf2);
 DEFINE_GUID(IID_IDWritePixelSnapping, 0xeaf3a2da,0xecf4,0x4d24,0xb6,0x44,0xb3,0x4f,0x68,0x42,0x02,0x4b);
 DEFINE_GUID(IID_IDWriteTextRenderer, 0xef8a8135,0x5cc6,0x45fe,0x88,0x25,0xc5,0xa0,0x72,0x4e,0xb8,0x19);
+DEFINE_GUID(IID_IDWriteFontFileEnumerator, 0x72755049, 0x5ff7, 0x435d, 0x83, 0x48, 0x4b, 0xe9, 0x7c, 0xfa, 0x6c, 0x7c);
+DEFINE_GUID(IID_IDWriteFontCollectionLoader, 0xcca920e4, 0x52f0, 0x492b, 0xbf, 0xa8, 0x29, 0xc7, 0x2e, 0xe0, 0xa4, 0x68);
+DEFINE_GUID(IID_IDWriteGdiInterop, 0x1edd9491,0x9853,0x4299,0x89,0x8f,0x64,0x32,0x98,0x3b,0x6f,0x3a);
 
 #endif /* __INC_DWRITE__ */
