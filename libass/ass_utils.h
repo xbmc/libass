@@ -232,6 +232,10 @@ static inline int mystrtoi32(char **p, int base, int32_t *res)
     return *p != start;
 }
 
+#if defined(WIN32) || defined(_MSC_VER)
+wchar_t* to_utf16(const char* str);
+char* to_utf8(const wchar_t* str);
+#endif
 #if __cplusplus
 }
 #endif

@@ -31,6 +31,9 @@
 #include "ass.h"
 #include "ass_utils.h"
 #include "ass_string.h"
+#if defined(WIN32) || defined(_MSC_VER)
+#include <windows.h>
+#endif
 
 // Fallbacks
 #ifndef HAVE_STRDUP
@@ -273,3 +276,40 @@ int ass_lookup_style(ASS_Track *track, char *name)
             track, name, track->styles[i].Name);
     return i;
 }
+
+#if defined(WIN32) || defined(_MSC_VER)
+wchar_t* to_utf16(const char* str)
+{
+    int utf16len = MultiByteToWideChar(CP_UTF8, 0, str, -1, NULL, 0);
+    if (utf16len == 0)
+        return NULL;
+
+    wchar_t* dirPath = malloc(sizeof(wchar_t) * utf16len);
+    int result = MultiByteToWideChar(CP_UTF8, 0, str, -1, dirPath, utf16len);
+
+    if (result == 0)
+    {
+        free(dirPath);
+        return NULL;
+    }
+
+    return dirPath;
+}
+
+char* to_utf8(const wchar_t* str)
+{
+    int utf8len = WideCharToMultiByte(CP_UTF8, 0, str, -1, NULL, 0, NULL, NULL);
+    if (utf8len == 0)
+        return NULL;
+
+    char* newStr = malloc(utf8len);
+    int result = WideCharToMultiByte(CP_UTF8, 0, str, -1, newStr, utf8len, NULL, NULL);
+    if (result == 0)
+    {
+        free(newStr);
+        return NULL;
+    }
+
+    return newStr;
+}
+#endif
