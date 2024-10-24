@@ -15,13 +15,14 @@
  * ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
-
+#if HAVE_CONFIG_H
 #include "config.h"
-#include "ass_compat.h"
+#endif
+#include "../ass_compat.h"
 
 #include <assert.h>
 
-#include "ass_rasterizer.h"
+#include "../ass_rasterizer.h"
 
 
 #define TILE_SIZE  16

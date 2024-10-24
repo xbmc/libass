@@ -47,6 +47,9 @@
 #define FFMIN(a,b) ((a) > (b) ? (b) : (a))
 #define FFMINMAX(c,a,b) FFMIN(FFMAX(c, a), b)
 
+#if __cplusplus
+extern "C" {
+#endif
 #define ASS_PI 3.14159265358979323846
 
 #define FEATURE_MASK(feat) (((uint32_t) 1) << (feat))
@@ -228,5 +231,9 @@ static inline int mystrtoi32(char **p, int base, int32_t *res)
     *res = FFMINMAX(temp_res, INT32_MIN, INT32_MAX);
     return *p != start;
 }
+
+#if __cplusplus
+}
+#endif
 
 #endif                          /* LIBASS_UTILS_H */

@@ -15,14 +15,15 @@
  * ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
-
+#if HAVE_CONFIG_H
 #include "config.h"
-#include "ass_compat.h"
+#endif
+#include "../ass_compat.h"
 
 #include <stddef.h>
 #include <stdint.h>
 
-#include "ass_utils.h"
+#include "../ass_utils.h"
 
 
 /**
